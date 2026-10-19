@@ -1,0 +1,29 @@
+# Gradle
+.gradle/
+build/
+app/build/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Local config — machine-specific SDK paths
+local.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Native
+.externalNativeBuild/
+.cxx/
+
+# Captures / logs
+captures/
+*.log
+
+# Signing secrets — never commit
+*.jks
+*.keystore
+keystore.properties
