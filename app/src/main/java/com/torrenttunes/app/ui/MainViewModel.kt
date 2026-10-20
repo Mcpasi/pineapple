@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import com.torrenttunes.app.library.LibraryStore
 import com.torrenttunes.app.player.PlayerController
 import com.torrenttunes.app.search.SearchResult
 import com.torrenttunes.app.util.CrashLogger
@@ -48,6 +49,7 @@ class MainViewModel @Inject constructor(
     @dagger.hilt.android.qualifiers.ApplicationContext private val androidContext: android.content.Context,
     val playerController: PlayerController,
     private val scope: CoroutineScope,
+    private val library: LibraryStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(UiState())
@@ -65,6 +67,16 @@ class MainViewModel @Inject constructor(
     /** Real album art from YouTube; empty when nothing is loaded. */
     private val _artworkUrl = MutableStateFlow("")
     val artworkUrl: StateFlow<String> = _artworkUrl.asStateFlow()
+
+    /**
+     * The track the player is actually on, as a full object.
+     *
+     * [nowPlaying] only carries a display string, which is not enough to like
+     * something or file it — the library keys everything off the video id. Set
+     * the moment a track is chosen, so it is correct before audio starts.
+     */
+    private val _currentTrack = MutableStateFlow<SearchResult?>(null)
+    val currentTrack: StateFlow<SearchResult?> = _currentTrack.asStateFlow()
 
     /** Playhead position in ms — drives the mini-player waveform. */
     private val _positionMs = MutableStateFlow(0L)
@@ -221,12 +233,18 @@ class MainViewModel @Inject constructor(
         // Optimistic: put the track in the player bar *now*, so the tap is
         // visibly answered before audio can possibly be ready.
         _state.update { it.copy(pending = result, loadingVideoId = result.videoId, error = null) }
+        // The full object reaches the player screen immediately — the like
+        // toggle must know which track it is acting on before audio exists.
+        _currentTrack.value = result
 
         val job = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val cached = streamCache.remove(result.videoId)
                 val resolved = cached ?: InnerTube.resolve(result.videoId)
                 playerController.play(listOf(mediaItem(result, resolved)))
+                // Recorded only once playback was genuinely handed off, so a
+                // track that never starts does not pollute "recently played".
+                library.recordPlay(result)
                 Log.i(
                     "Play",
                     "started '${result.title}' " +

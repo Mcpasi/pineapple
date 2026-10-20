@@ -16,8 +16,9 @@ import org.json.JSONObject
  * `/player` returns very different payloads depending on which client claims
  * to be calling. The WEB client encrypts stream URLs behind `signatureCipher`,
  * which needs JavaScript evaluation to decode — we cannot do that on-device
- * without shipping a JS engine. The ANDROID client hands back **plain URLs**,
- * so we use it and skip the cipher entirely.
+ * without shipping a JS engine. The **VISIONOS** client hands back **plain
+ * URLs** *and* is the one client whose streams googlevideo serves in full
+ * (see [PLAYER_CLIENTS] for the measurements), so it leads the list.
  *
  * This is the fragile seam of the whole app: YouTube rotates client
  * requirements periodically. All of that churn is confined to [PlayerClient]
@@ -33,7 +34,35 @@ object InnerTube {
         "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
 
+    /**
+     * Identity of the VISIONOS player client.
+     *
+     * Shared with the media fetch in `AppModule` so the request for the bytes
+     * carries the same identity as the URL that was issued for it. (Verified:
+     * a VISIONOS URL serves the whole file under this UA; no other field of
+     * the media request is checked.)
+     */
+    internal const val VISIONOS_UA =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 " +
+            "(KHTML, like Gecko) Version/26.0 Safari/605.1.15"
+
     private const val ENDPOINT = "https://www.youtube.com/youtubei/v1/"
+
+    // VISIONOS answers LOGIN_REQUIRED unless the player request carries a
+    // visitor id. Every InnerTube response hands one back — including the
+    // rejected player response — so the first failure is what teaches us ours.
+    // Wrote it as a plain field on purpose: search and playback both run on the
+    // same app, so a search that already happened pays nothing here.
+    @Volatile
+    private var visitorId: String? = null
+
+    /** Remember the visitor id from any InnerTube response. */
+    private fun captureVisitor(root: JSONObject) {
+        val vd = runCatching {
+            root.optJSONObject("responseContext")?.optString("visitorData").orEmpty()
+        }.getOrDefault("")
+        if (vd.isNotEmpty()) visitorId = vd
+    }
 
     // ------------------------------------------------------------- clients
 
@@ -49,13 +78,56 @@ object InnerTube {
         val clientExtras: Map<String, Any?> = emptyMap(),
     )
 
-    // Verified 2026-10-19: ANDROID returns `status: OK` with 6 direct audio
-    // URLs. The rest are ordered fallbacks for when YouTube retires that build.
+    // Verified 2026-10-20: VISIONOS is the only client that returns the WHOLE
+    // audio file. Everything below it resolves a URL but googlevideo then
+    // serves at most a 1 MiB preview of it:
+    //
+    //   range                ANDROID 20.10.38   VISIONOS 1.02
+    //   no Range (whole)     403                200  (read the full 4.7 MB)
+    //   0-65535              206                206
+    //   1048576-2097151      403                206
+    //   3000000-4194303      403                206
+    //
+    // The gate is the client, not the region: the VISIONOS URL still carries
+    // `gcr=in` and plays fine, and no proof-of-origin token is involved
+    // (`pot` is absent). It needs `X-Goog-Visitor-Id` on the player request or
+    // it answers LOGIN_REQUIRED — see [captureVisitor].
     private val PLAYER_CLIENTS = listOf(
+        PlayerClient(
+            name = "VISIONOS", version = "1.02", clientNameId = "101",
+            userAgent = VISIONOS_UA,
+            clientExtras = mapOf(
+                "deviceMake" to "Apple",
+                "deviceModel" to "RealityDevice17,1",
+                "osName" to "visionOS",
+                "osVersion" to "26.5.23O471",
+            ),
+            extras = mapOf("contentCheckOk" to true, "racyCheckOk" to true),
+        ),
         PlayerClient(
             name = "ANDROID", version = "20.10.38", clientNameId = "3",
             userAgent = "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip",
             clientExtras = mapOf("androidSdkVersion" to 30),
+            extras = mapOf("contentCheckOk" to true, "racyCheckOk" to true),
+        ),
+        // Verified 2026-10-20: ANDROID_VR 1.43.32 (Oculus Quest build) returns
+        // `status: OK` with plain URLs, needs neither a PoToken nor a
+        // signatureTimestamp, and serves whole byte ranges. It is the primary
+        // client the Convx player ships with — the strongest fallback we have,
+        // so it goes ahead of the ANDROID build that is known to return only
+        // ciphered URLs.
+        PlayerClient(
+            name = "ANDROID_VR", version = "1.43.32", clientNameId = "28",
+            userAgent = "com.google.android.apps.youtube.vr.oculus/1.43.32 " +
+                "(Linux; U; Android 12; en_US; Quest 3; " +
+                "Build/SQ3A.220605.009.A1; Cronet/107.0.5284.2)",
+            clientExtras = mapOf(
+                "androidSdkVersion" to 32,
+                "osName" to "Android",
+                "osVersion" to "12",
+                "deviceMake" to "Oculus",
+                "deviceModel" to "Quest 3",
+            ),
             extras = mapOf("contentCheckOk" to true, "racyCheckOk" to true),
         ),
         PlayerClient(
@@ -87,7 +159,11 @@ object InnerTube {
             jsonBody = body.toString(),
             headers = webHeaders(),
         )
-        return parseSearch(JSONObject(raw))
+        val root = JSONObject(raw)
+        // Search is what usually runs first, so this is where we usually learn
+        // the visitor id the player request needs.
+        captureVisitor(root)
+        return parseSearch(root)
     }
 
     /** Videos related to [videoId] — used to build a continuous queue. */
@@ -100,7 +176,9 @@ object InnerTube {
             jsonBody = body.toString(),
             headers = webHeaders(),
         )
-        return parseRelated(JSONObject(raw))
+        val root = JSONObject(raw)
+        captureVisitor(root)
+        return parseRelated(root)
     }
 
     private fun webContext(): JSONObject = JSONObject().put(
@@ -162,33 +240,95 @@ object InnerTube {
             .put("videoId", videoId)
         client.extras.forEach { (k, v) -> body.put(k, v) }
 
-        val raw = try {
+        // Adds `X-Goog-Visitor-Id` when we know it — without it VISIONOS
+        // answers LOGIN_REQUIRED and every other client simply fares worse.
+        suspend fun postPlayer(): String? = try {
             Http.postJson(
                 url = "${ENDPOINT}player?key=$KEY",
                 jsonBody = body.toString(),
-                headers = mapOf(
-                    "X-Youtube-Client-Name" to client.clientNameId,
-                    "X-Youtube-Client-Version" to client.version,
-                    "User-Agent" to client.userAgent,
-                ),
+                headers = buildMap {
+                    put("X-Youtube-Client-Name", client.clientNameId)
+                    put("X-Youtube-Client-Version", client.version)
+                    put("User-Agent", client.userAgent)
+                    visitorId?.let { put("X-Goog-Visitor-Id", it) }
+                },
             )
         } catch (t: Throwable) {
-            return null
+            null
         }
 
-        val root = runCatching { JSONObject(raw) }.getOrNull() ?: return null
-        val status = root.optJSONObject("playabilityStatus")?.optString("status").orEmpty()
-        if (status != "OK") return null
+        // Spend the second request only when this call is the one that first
+        // learned a visitor id; otherwise every client would retry twice.
+        val hadVisitor = visitorId != null
+        val first = postPlayer() ?: return null
+        var root = runCatching { JSONObject(first) }.getOrNull() ?: return null
+        captureVisitor(root)
+
+        fun status(): String =
+            root.optJSONObject("playabilityStatus")?.optString("status").orEmpty()
+
+        if (!hadVisitor && visitorId != null && status() != "OK") {
+            val second = postPlayer() ?: return null
+            root = runCatching { JSONObject(second) }.getOrNull() ?: return null
+            captureVisitor(root)
+        }
+
+        if (status() != "OK") return null
 
         val best = bestAudio(root.optJSONObject("streamingData")?.optJSONArray("adaptiveFormats"))
             ?: return null
 
         val details = root.optJSONObject("videoDetails")
+        logStream(best.url, client)
         return Resolved(
             stream = best,
             title = details?.optString("title").orEmpty(),
             durationSec = details?.optLong("lengthSeconds", 0L) ?: 0L,
         )
+    }
+
+    /**
+     * Enough of the stream URL to diagnose a 403 after the fact.
+     *
+     * `boundIp` is the one that matters: googlevideo checks the address the
+     * media request leaves from against `ip=` in the URL. On a dual-stack
+     * device the resolve and the playback can leave over different address
+     * families, and the only symptom is a bare 403 with nothing else wrong.
+     */
+    private fun logStream(url: String, client: PlayerClient) {
+        fun param(name: String): String =
+            Regex("(?:[?&])$name=([^&]*)").find(url)?.groupValues?.get(1) ?: "-"
+        val host = runCatching { java.net.URL(url).host }.getOrDefault("?")
+        android.util.Log.i(
+            "Stream",
+            "client=${client.name} ${client.version} host=$host " +
+                "boundIp=${param("ip")} expire=${param("expire")} c=${param("c")}",
+        )
+        // Full URL: only way to replay the exact request the phone made when
+        // it comes back with a bare 403.
+        android.util.Log.i("StreamUrl", url)
+        // Which addresses Java will consider for the media request. The URL is
+        // bound to whichever address the *resolve* left from; if the media
+        // fetch picks a different family, googlevideo answers 403 and nothing
+        // else about the request looks wrong.
+        val dns = runCatching {
+            java.net.InetAddress.getAllByName(host).joinToString { it.hostAddress }
+        }.getOrDefault("dns-failed")
+        android.util.Log.i("Stream", "dns $host -> $dns")
+
+        // The source address the kernel actually picks for that destination.
+        // If it disagrees with boundIp above, googlevideo refuses the stream
+        // with a bare 403 and nothing else about the request looks wrong.
+        val src = runCatching {
+            java.net.Socket().use { s ->
+                s.connect(java.net.InetSocketAddress(host, 443), 6_000)
+                s.localAddress.hostAddress
+            }
+        }.getOrDefault("connect-failed")
+        val bound = runCatching {
+            java.net.URLDecoder.decode(param("ip"), "UTF-8")
+        }.getOrDefault("-")
+        android.util.Log.i("Stream", "src=$src vs boundIp=$bound")
     }
 
     /**

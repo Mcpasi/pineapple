@@ -7,7 +7,6 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import com.torrenttunes.app.player.BoundedRangeDataSourceFactory
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -40,13 +39,15 @@ object AppModule {
     @Singleton
     fun providePlayer(@ApplicationContext context: Context): ExoPlayer {
 
-        // Streams come from googlevideo.com and were verified reachable with
-        // the Android YouTube UA — matching it avoids any UA-based gating.
+        // googlevideo must see the identity that the stream URL was issued
+        // under, so this mirrors the leading player client rather than
+        // impersonating an app. A VISIONOS URL was verified to serve the whole
+        // file under this UA.
         val http = DefaultHttpDataSource.Factory()
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(15_000)
             .setAllowCrossProtocolRedirects(true)
-            .setUserAgent("com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip")
+            .setUserAgent(com.torrenttunes.app.youtube.InnerTube.VISIONOS_UA)
 
         // Start fast, then buffer deep.
         //  - bufferForPlayback 500ms : audio begins almost as soon as the
@@ -64,14 +65,26 @@ object AppModule {
             .setBackBuffer(/* backBufferDurationMs */ 30_000, /* retainBackBufferFromKeyframe */ true)
             .build()
 
-        // googlevideo rejects unbounded Range requests with a 403, and
-        // ExoPlayer sends exactly that. Every stream goes through the shim
-        // that bounds them — without it, nothing plays at all.
-        val bounded = BoundedRangeDataSourceFactory(http)
-
+        // One normal request is enough — googlevideo answers a plain GET (and
+        // `bytes=0-`) with the **entire** file. What it serves depends only on
+        // which client issued the URL.
+        //
+        // Measured 2026-10-20 from one IP, in the same minute, same video
+        // (Ky-QenzQD6U, 4.7 MB audio):
+        //
+        //   range                ANDROID 20.10.38   VISIONOS 1.02
+        //   no Range (whole)     403                200  read all 4738365
+        //   0-65535              206                206
+        //   1048576-2097151      403                206
+        //   3000000-4194303      403                206
+        //
+        // So there is no byte cap and no UA rule to work around — an earlier
+        // reading blaming a bot-flagged IP, and a "1 MiB preview" theory, were
+        // both wrong. The gate is the client, and the URL is bound to this
+        // device's IP anyway (the `ip=` field), which the phone satisfies.
         return ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, bounded)))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http)))
             .build()
     }
 

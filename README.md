@@ -3,11 +3,11 @@
 A native Android music app in Kotlin: type a song, get results, tap, and it
 plays — with a continuous mix building behind whatever you picked.
 
-> **Status: paused with playback unsolved.** Everything up to and including a
-> finished UI, working search, prefetch, thumbnails, and a persistent library
-> is in place. The one thing that does **not** work is getting actual audio out
-> of YouTube, for a reason that is YouTube's, not the app's. See
-> [The blocker](#the-blocker) before picking this up.
+> **Status: playback works.** Search, prefetch, thumbnails, continuous queue and
+> audio are all verified on device — `state=3` with the position advancing in
+> real time. The 403 that blocked audio for weeks is fixed; see
+> [The 403, and the fix](#the-403-and-the-fix), because the real cause was the
+> opposite of every theory it was blamed on.
 
 ---
 
@@ -16,6 +16,7 @@ plays — with a continuous mix building behind whatever you picked.
 | Area | State |
 |---|---|
 | Search | 19 results in ~1.2 s via InnerTube `/search` |
+| **Playback** | **Verified on device: `state=3`, position advancing in real time, whole file** |
 | Stream-URL prefetch | Top 5 resolved while you read the list; **5/5** on device |
 | Album art | Loads — was broken by main-thread HTTP, now fixed |
 | Playback threading | Wrong-thread crash fixed and verified (`onMain {}`) |
@@ -27,59 +28,104 @@ plays — with a continuous mix building behind whatever you picked.
 
 ## What does not work
 
-**Audio.** Tap a result and ExoPlayer dies with `Response code: 403`. This is
-the whole remaining problem, and it is documented below so nobody re-derives it.
+- **The Library and NowPlaying screens are not mounted** — they compile, but
+  `TorrentTunesScreen` still renders the single search column.
+- **Discovery tab** — placeholder only.
+- **PO tokens / WebView embed / bounded-range shim** — all three are gone on
+  purpose; none of them is needed now. See [the fix](#the-403-and-the-fix).
 
 ---
 
-## The blocker
+## The 403, and the fix
 
-YouTube serves its ANDROID-client stream URLs **only for the first 1 MiB of a
-file**, unless the request carries a proof-of-origin token. Measured on
-2026-10-20, fresh URL per request, reproduced independently from a PC and from
-the phone:
+For weeks the app resolved a stream URL and then ExoPlayer died with a bare
+`Response code: 403`. It looked like a network problem — the URL is bound to
+the requesting IP, the phone is dual-stack — and the first measurements looked
+like a **1 MiB cap** on the file.
 
-```
-bare GET                -> 403
-Range: bytes=0-         -> 403      (open-ended; ExoPlayer's normal request)
-Range: bytes=0-65535    -> 206
-Range: bytes=0-1048575  -> 206      <- the entire playable region
-Range: bytes=0-1572863  -> 403
-bytes=1048576-2097151   -> 403      <- chunk 2, never served
-bytes=500000-1048575    -> 206      <- start may vary, end may not
-```
+**Both theories were wrong.** The gate is the **player client that issued the
+URL**, not the network, not the region, and not the byte count.
 
-The cap is on the **absolute end offset (byte 1,048,575)**, not the window
-width — `bytes=500000-1048575` is a valid 1 MiB window and succeeds, while
-`bytes=262144-1310719`, the same width, fails.
+Measured 2026-10-20 from one IP, in the same minute, same video
+(`Ky-QenzQD6U`, 4.7 MB audio), fresh URL per request:
 
-### Approaches tried
+| range | ANDROID 20.10.38 | VISIONOS 1.02 |
+|---|---|---|
+| no `Range` (whole file) | **403** | **200** — read all 4738365 bytes |
+| `bytes=0-65535` | 206 | 206 |
+| `bytes=1048576-2097151` | **403** | 206 |
+| `bytes=3000000-4194303` | **403** | 206 |
 
-1. **ExoPlayer with bounded range requests** — `BoundedRangeDataSource` issues
-   sequential 1 MiB chunks and presents them as one stream. The shim is
-   correct; the server refuses to hand out byte 1,048,576. Playback reaches
-   `state=6` (buffering) at position 0 and dies ~40 s in.
-2. **WebView + published IFrame API** in a synthetic `loadDataWithBaseURL`
+The "1 MiB cap" was an artifact of always measuring ANDROID URLs; a later
+theory blaming a bot-flagged IP was disproven by replaying the phone's exact
+URL from two machines. On the device itself `src=` and `boundIp=` matched
+byte for byte, so IP binding was satisfied the whole time.
+
+Region is not the cause either: the working VISIONOS URL **still carries
+`gcr=in`**, and no proof-of-origin token is involved (`pot` is absent).
+
+### The fix
+
+`InnerTube` now leads with **`VISIONOS 1.02`** (client id `101`) and stamps the
+player request with `X-Goog-Visitor-Id`. Nothing else changed — no WebView, no
+JS engine, no proof-of-origin token, no new dependency.
+
+One requirement matters: drop **`X-Goog-Visitor-Id`** and VISIONOS answers
+`LOGIN_REQUIRED`. `Origin`, `playbackContext`, and the client's
+`userAgent`/`timeZone`/`utcOffsetMinutes` are each optional — measured
+individually. Every InnerTube response hands back a visitor id, including the
+rejected `/player` response, so `InnerTube.captureVisitor` usually learns it
+from the search that precedes a tap, and `tryResolve` retries exactly once if
+it started with none. That makes the first play of a cold session self-healing.
+
+### Approaches tried before it
+
+1. **`BoundedRangeDataSource`** — a correct segmented range reader, and
+   *deleted*. It could only request what the server allowed, and ANDROID URLs
+   were allowed exactly 1 MiB of it.
+2. **Proof-of-origin token (BotGuard)** — the theoretically correct answer, and
+   what every real downloader uses for gated clients. Prototyped end to end on
+   a PC (`Create` → run the VM → `GenerateIT`): YouTube handed back only a
+   `websafeFallbackToken`, and the BotGuard VM never published a WebPO minter.
+   **Moot** — VISIONOS needs no token at all, `pot` is absent from working URLs.
+   (LuanRT/BgUtils and rustypipe-botguard are both MIT, if that path is ever
+   needed again for a different client.)
+3. **WebView + published IFrame API** in a synthetic `loadDataWithBaseURL`
    document — **error 152**, "cannot be played in an embedded player", even on
    videos reporting `playableInEmbed=true`.
-3. **WebView navigating to the real embed URL** — error 152 gone, loads clean,
-   but no audio because autoplay was blocked without a user gesture. **This is
-   the most promising path** and is where work stopped.
+4. **WebView navigating to the real embed URL** — error 152 gone, loads clean,
+   but no audio because autoplay was blocked without a user gesture.
 
-Every other InnerTube client was ruled out: `ANDROID 21.37.36` returns
-ciphered URLs only; `IOS 19.45.4` fails to resolve; `MWEB` → `UNPLAYABLE`;
-`TVHTML5` / `TVEMBEDDED` / `ANDROID_VR` → `LOGIN_REQUIRED` or `ERROR`; the
-music clients (`ANDROID_MUSIC`, `IOS_MUSIC`, `WEB_REMIX`) → `ERROR`.
+### Every other client was ruled out on the same music video
 
-Adding a `X-Goog-Visitor-Id` header does **not** lift the cap. The stream URL
-carries no `pot` token.
+| client | result |
+|---|---|
+| `ANDROID 20.10.38` | resolves a URL — but googlevideo serves only the first 1 MiB |
+| `ANDROID 21.37.36` | ciphered URLs only |
+| `IOS 19.45.4` | fails to resolve |
+| `WEB`, `MWEB`, `WEB_REMIX` | `UNPLAYABLE` |
+| `TVHTML5`, `TVEMBEDDED`, `ANDROID_VR`, `IOS_MUSIC`, `ANDROID_MUSIC`, `ANDROID_CREATOR` | `LOGIN_REQUIRED` or `ERROR` |
+| **`VISIONOS 1.02`** | **`OK` — 23/23 formats with direct URLs, whole file served** |
 
-### Why Snaptube works
+The stream URL carries no `pot` token, so nothing about proof-of-origin ever
+applied. yt-dlp independently confirms the direction: as of `2026.08.19` its
+default client is `visionos`, and it is listed with **no** `GVS_PO_TOKEN_POLICY`
+at all — `pot=False`, default client pool `('visionos','web')`.
 
-Snaptube embeds a WebView and lets YouTube's own `base.js` run — a trusted
-browser context is simply allowed to play. Option 3 above is that approach in
-its cheapest form: use the official, supported IFrame embed rather than
-reproducing Google's obfuscated botguard attestation.
+### Why this looked like three other things
+
+Because the symptom was a bare `Response code: 403`, and three plausible
+explanations each *did* reproduce something real:
+
+- **IP binding** — the URL does bind to the requesting IP. But `src=` and
+  `boundIp=` matched byte for byte on the device, and replaying the phone's own
+  URL from a PC failed the same way. Binding was never violated.
+- **Regional gating** — false. The working VISIONOS URL still carries `gcr=in`.
+- **A 1 MiB cap** — real, but only ever observed on ANDROID URLs, because those
+  were the only ones being measured.
+
+The measurements are worth keeping because each hypothesis was cheap to test
+and the obvious one (BotGuard) turned out to be required by *none* of them.
 
 ---
 
@@ -87,33 +133,32 @@ reproducing Google's obfuscated botguard attestation.
 
 Ordered by value:
 
-1. **Finish the WebView player (highest value — unblocks everything).**
-   - Make the player view visible rather than 1×1, or start playback from a
-     real user gesture so autoplay is permitted.
-   - Drive it over `postMessage` with `enablejsapi=1` for play / pause / seek,
-     and source position + duration from the same channel.
-   - Reuse `WebViewAudioPlayer` (`app/src/main/java/.../player/WebViewAudioPlayer.kt`),
-     which already has the JS bridge, state codes and progress ticker written.
-   - Wire it behind `PlayerController` so `MainViewModel` is unchanged.
-
-2. **Wire the library into the UI.** `LibraryStore` and `LibraryViewModel` are
+1. **Wire the library into the UI.** `LibraryStore` and `LibraryViewModel` are
    built and compile, but `LibraryScreen` and `Navigation` are **not yet
    mounted** — `TorrentTunesScreen` still renders the single search column.
    The task is to add the bottom `AppNavBar` with Discovery / Search / Library
    tabs and route to `LibraryScreen`.
 
-3. **Mount `NowPlayingScreen`.** Written, not yet reachable. Needs a
+2. **Mount `NowPlayingScreen`.** Written, not yet reachable. Needs a
    `currentTrack` flow on `MainViewModel` (set in `playResult`) so the like
    toggle knows which track it is acting on — the parameter already exists on
    the composable.
 
-4. **Discovery tab content.** Currently a placeholder. Natural options: trending
+3. **Discovery tab content.** Currently a placeholder. Natural options: trending
    InnerTube results, or last-played.
 
-5. **Background/offline policy.** Per requirement: *nothing is downloaded
+4. **Background/offline policy.** Per requirement: *nothing is downloaded
    permanently unless the user explicitly makes an offline playlist*. Enforce
    this when a download path is eventually added — `LibraryStore` today stores
    only references, never media.
+
+5. **Keep the client list alive.** If playback ever 403s again, the first
+   question is "did YouTube retire `VISIONOS 1.02`?" — every number and the
+   client matrix above are the baseline to re-run against
+   (`probeClients.ps1`, `probeMatrix.ps1`, `probeRange.ps1`).
+
+*Not* on the list: the WebView player, the bounded-range shim, and PO tokens.
+All three are solved or superseded.
 
 ---
 
@@ -121,13 +166,12 @@ Ordered by value:
 
 ```
 app/src/main/java/com/torrenttunes/app/
-├── di/AppModule.kt            ExoPlayer + bounded-range data source
+├── di/AppModule.kt            ExoPlayer; fetches googlevideo under the client's own UA
 ├── youtube/InnerTube.kt       Hand-written InnerTube client (search / next / player)
 ├── search/                    SearchResult, AudioStream, HttpURLConnection helper
 ├── player/
 │   ├── PlayerController.kt    Thread confinement: every call goes through onMain {}
-│   ├── BoundedRangeDataSource.kt   Segmented range reader (correct, but capped upstream)
-│   └── WebViewAudioPlayer.kt  IFrame-embed player — the intended replacement
+│   └── WebViewAudioPlayer.kt  IFrame-embed prototype — superseded, kept for reference
 ├── playback/PlaybackService.kt
 ├── library/
 │   ├── LibraryStore.kt        Likes, playlists, recents — SharedPreferences + JSON
@@ -147,10 +191,11 @@ app/src/main/java/com/torrenttunes/app/
 
 - **No new dependencies.** InnerTube is written by hand rather than using
   NewPipeExtractor (GPLv3). HTTP is `HttpURLConnection`. Glyphs are Canvas.
-- **ANDROID client for `/player`, WEB for `/search` and `/next`.** ANDROID
-  returns plain URLs with no `signatureCipher`; WEB encrypts them behind a
-  cipher needing a JS engine. `PLAYER_CLIENTS` in `InnerTube.kt` is the single
-  place to bump when YouTube rotates client versions.
+- **VISIONOS for `/player`, WEB for `/search` and `/next`.** VISIONOS returns
+  plain URLs with no `signatureCipher` *and* is the one client googlevideo
+  serves in full; WEB encrypts them behind a cipher needing a JS engine.
+  `PLAYER_CLIENTS` in `InnerTube.kt` is the single place to bump when YouTube
+  rotates client versions, and it leads with the client that works.
 - **Keep YouTube's relevance order** and flag index 0 as `BEST`. Deliberately
   *not* sorted by views, which would promote louder covers.
 - **Thread safety lives in `PlayerController`**, not at call sites — all player
