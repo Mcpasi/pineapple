@@ -48,10 +48,11 @@ import com.torrenttunes.app.library.LibraryViewModel
 import com.torrenttunes.app.library.Playlist
 import com.torrenttunes.app.search.SearchResult
 import com.torrenttunes.app.ui.components.Thumbnail
-import com.torrenttunes.app.ui.theme.ScFill
-import com.torrenttunes.app.ui.theme.ScInk
+import com.torrenttunes.app.ui.theme.ScCard
+import com.torrenttunes.app.ui.theme.ScSurface
+import com.torrenttunes.app.ui.theme.ScText
 import com.torrenttunes.app.ui.theme.ScOrange
-import com.torrenttunes.app.ui.theme.ScInkSoft
+import com.torrenttunes.app.ui.theme.ScTextDim
 
 /**
  * What the user kept.
@@ -84,7 +85,7 @@ fun LibraryScreen(
                 "Your Library",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = ScInk,
+                color = ScText,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
@@ -117,7 +118,7 @@ fun LibraryScreen(
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
-                                color = ScInk,
+                                color = ScText,
                             )
                         }
                     }
@@ -144,7 +145,7 @@ fun LibraryScreen(
                         "Liked Songs",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
-                        color = ScInk,
+                        color = ScText,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -153,7 +154,7 @@ fun LibraryScreen(
                         if (state.liked.isEmpty()) "Tap a heart to save songs"
                         else "${state.liked.size} song${if (state.liked.size == 1) "" else "s"}",
                         fontSize = 13.sp,
-                        color = ScInkSoft,
+                        color = ScTextDim,
                     )
                 }
                 PinGlyph(Modifier.size(18.dp))
@@ -185,7 +186,7 @@ fun LibraryScreen(
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
-                                color = ScInk,
+                                color = ScText,
                             )
                         }
                     }
@@ -201,7 +202,7 @@ fun LibraryScreen(
                 Text(
                     "No playlists yet — long-press any song to create one.",
                     fontSize = 13.sp,
-                    color = ScInkSoft,
+                    color = ScTextDim,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
@@ -250,7 +251,7 @@ private fun SectionHeader(title: String, trailing: () -> Unit) {
             title,
             fontSize = 15.sp,
             fontWeight = FontWeight.Bold,
-            color = ScInk,
+            color = ScText,
             letterSpacing = 0.2.sp,
         )
         Spacer(Modifier.weight(1f))
@@ -296,9 +297,9 @@ private fun PinGlyph(modifier: Modifier) = Canvas(modifier) {
     val s = size.minDimension
     val stroke = s * 0.14f
     // Simple pin: head + stem.
-    drawCircle(ScInkSoft, radius = s * 0.20f, center = androidx.compose.ui.geometry.Offset(s * 0.5f, s * 0.28f))
+    drawCircle(ScTextDim, radius = s * 0.20f, center = androidx.compose.ui.geometry.Offset(s * 0.5f, s * 0.28f))
     drawLine(
-        ScInkSoft,
+        ScTextDim,
         start = androidx.compose.ui.geometry.Offset(s * 0.5f, s * 0.46f),
         end = androidx.compose.ui.geometry.Offset(s * 0.5f, s * 0.90f),
         strokeWidth = stroke,
@@ -345,7 +346,7 @@ private fun PlaylistRow(playlist: Playlist, onClick: () -> Unit, onLongClick: ()
                 playlist.name,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = ScInk,
+                color = ScText,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -353,7 +354,7 @@ private fun PlaylistRow(playlist: Playlist, onClick: () -> Unit, onLongClick: ()
             Text(
                 "Playlist · ${playlist.tracks.size} song${if (playlist.tracks.size == 1) "" else "s"}",
                 fontSize = 13.sp,
-                color = ScInkSoft,
+                color = ScTextDim,
             )
         }
     }
@@ -383,7 +384,9 @@ private fun TrackActionsSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color.White,
+        // Not white: the sheet's text is ScText, which is near-white on the
+        // dark ground and would vanish against a white sheet.
+        containerColor = ScCard,
     ) {
         Column(Modifier.padding(bottom = 24.dp)) {
             Row(
@@ -399,21 +402,21 @@ private fun TrackActionsSheet(
                         track.title,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color = ScInk,
+                        color = ScText,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         track.channel,
                         fontSize = 13.sp,
-                        color = ScInkSoft,
+                        color = ScTextDim,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
 
-            HorizontalDivider(color = ScFill)
+            HorizontalDivider(color = ScSurface)
 
             SheetAction(if (liked) "Remove from Liked" else "Add to Liked") {
                 libraryVm.toggleLike(track)
@@ -435,7 +438,7 @@ private fun TrackActionsSheet(
                 }
             }
 
-            HorizontalDivider(color = ScFill)
+            HorizontalDivider(color = ScSurface)
 
             if (!showPlaylistPicker && !showNewPlaylist) {
                 SheetAction("Add to playlist") { showPlaylistPicker = true }
@@ -447,14 +450,14 @@ private fun TrackActionsSheet(
                     "Add to playlist",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = ScInkSoft,
+                    color = ScTextDim,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                 )
                 if (library.playlists.isEmpty()) {
                     Text(
                         "No playlists yet.",
                         fontSize = 13.sp,
-                        color = ScInkSoft,
+                        color = ScTextDim,
                         modifier = Modifier.padding(horizontal = 20.dp),
                     )
                 }
@@ -475,7 +478,7 @@ private fun TrackActionsSheet(
                     "New playlist",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = ScInkSoft,
+                    color = ScTextDim,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                 )
                 OutlinedTextField(
@@ -495,7 +498,7 @@ private fun TrackActionsSheet(
                         .padding(horizontal = 20.dp)
                         .height(46.dp)
                         .clip(RoundedCornerShape(23.dp))
-                        .background(if (canSave) ScOrange else ScFill)
+                        .background(if (canSave) ScOrange else ScSurface)
                         .clickable(enabled = canSave) {
                             libraryVm.createPlaylist(newName)?.let { id ->
                                 libraryVm.addToPlaylist(id, track)
@@ -506,7 +509,7 @@ private fun TrackActionsSheet(
                 ) {
                     Text(
                         "Create and add",
-                        color = if (canSave) Color.White else ScInkSoft,
+                        color = if (canSave) Color.White else ScTextDim,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 15.sp,
                     )
@@ -522,7 +525,7 @@ private fun SheetAction(label: String, onClick: () -> Unit) {
         label,
         fontSize = 15.sp,
         fontWeight = FontWeight.Medium,
-        color = ScInk,
+        color = ScText,
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)

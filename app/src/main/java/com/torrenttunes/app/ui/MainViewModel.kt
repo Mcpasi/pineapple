@@ -90,6 +90,52 @@ class MainViewModel @Inject constructor(
     private val _lastCrash = MutableStateFlow(CrashLogger.readPersisted(androidContext))
     val lastCrash: StateFlow<String?> = _lastCrash.asStateFlow()
 
+    // ------------------------------------------------------------- discovery
+
+    /**
+     * YouTube Music's trending chart, fetched at most once per process.
+     *
+     * Lazily rather than in [init]: most sessions open on Search, and paying a
+     * browse request for a tab nobody looked at is a wasted round trip.
+     */
+    private val _trending = MutableStateFlow<List<SearchResult>>(emptyList())
+    val trending: StateFlow<List<SearchResult>> = _trending.asStateFlow()
+
+    private val _trendingLoading = MutableStateFlow(false)
+    val trendingLoading: StateFlow<Boolean> = _trendingLoading.asStateFlow()
+
+    private val _trendingError = MutableStateFlow<String?>(null)
+    val trendingError: StateFlow<String?> = _trendingError.asStateFlow()
+
+    private var trendingJob: Job? = null
+    private var trendingLoaded = false
+
+    /** Fetches the chart on first visit to the Discovery tab. */
+    fun ensureTrending() {
+        if (trendingLoaded || trendingJob?.isActive == true) return
+        trendingLoaded = true
+        trendingJob = viewModelScope.launch(Dispatchers.IO) {
+            _trendingLoading.value = true
+            _trendingError.value = null
+            try {
+                val chart = InnerTube.trending()
+                _trending.value = chart
+                Log.i("Discovery", "trending: ${chart.size} tracks")
+            } catch (t: Throwable) {
+                Log.w("Discovery", "trending failed", t)
+                _trendingError.value = t.message ?: "Could not load trending"
+            } finally {
+                _trendingLoading.value = false
+            }
+        }
+    }
+
+    /** Retry after a failed load — the Discovery error state's target. */
+    fun retryTrending() {
+        trendingLoaded = false
+        ensureTrending()
+    }
+
     private var searchJob: Job? = null
     private var playJob: Job? = null
     private var prefetchJob: Job? = null

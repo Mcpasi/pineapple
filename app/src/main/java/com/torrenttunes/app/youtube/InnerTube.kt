@@ -48,6 +48,9 @@ object InnerTube {
         "MUSIC_VIDEO_TYPE_ATV",
         "MUSIC_VIDEO_TYPE_OMV",
     )
+
+    /** The explore page — its shelves are where Discovery gets its content. */
+    private const val EXPLORE_BROWSE_ID = "FEmusic_explore"
     private const val ANDROID_UA =
         "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
@@ -201,6 +204,29 @@ object InnerTube {
         return parseSearch(root)
     }
 
+    /**
+     * YouTube Music's trending chart — what the Discovery tab shows.
+     *
+     * `/browse` with [EXPLORE_BROWSE_ID] returns the explore page, whose
+     * carousels are New albums & singles, Moods & genres, Popular episodes and
+     * Trending. Only the Trending shelf is wanted, and its rows are parsed by
+     * the same routine search uses, so a track looks identical wherever it was
+     * found.
+     */
+    suspend fun trending(): List<SearchResult> {
+        val body = JSONObject()
+            .put("context", musicContext())
+            .put("browseId", EXPLORE_BROWSE_ID)
+        val raw = Http.postJson(
+            url = "${ENDPOINT}browse?key=$KEY",
+            jsonBody = body.toString(),
+            headers = musicHeaders(),
+        )
+        val root = JSONObject(raw)
+        captureVisitor(root)
+        return parseTrending(root)
+    }
+
     /** Videos related to [videoId] — used to build a continuous queue. */
     suspend fun related(videoId: String): List<SearchResult> {
         val body = JSONObject()
@@ -288,28 +314,30 @@ object InnerTube {
     )
 
     /**
+     * Depth-first collection of every node named [kind].
+     *
      * Music rows do not live under `twoColumnSearchResultsRenderer` — they are
-     * handed out inside `musicShelfRenderer` / `musicCardShelfRenderer` nodes
-     * at varying depths, and a card is not shaped like a row. Walking for
-     * `musicResponsiveListItemRenderer` by name sidesteps the layout question
+     * handed out inside `musicShelfRenderer` / `musicCarouselShelfRenderer` /
+     * `musicCardShelfRenderer` nodes at varying depths, and a card is not
+     * shaped like a row. Walking by name sidesteps the layout question
      * entirely and survives YouTube reshuffling its sections.
      */
-    private fun collectMusicRows(node: Any?, out: MutableList<JSONObject>) {
+    private fun collectNodes(node: Any?, kind: String, out: MutableList<JSONObject>) {
         when (node) {
             is JSONObject -> {
-                node.optJSONObject("musicResponsiveListItemRenderer")?.let { out += it }
+                node.optJSONObject(kind)?.let { out += it }
                 val keys = node.keys()
-                while (keys.hasNext()) collectMusicRows(node.opt(keys.next()), out)
+                while (keys.hasNext()) collectNodes(node.opt(keys.next()), kind, out)
             }
             is JSONArray -> {
-                for (i in 0 until node.length()) collectMusicRows(node.opt(i), out)
+                for (i in 0 until node.length()) collectNodes(node.opt(i), kind, out)
             }
         }
     }
 
     internal fun parseMusicSearch(root: JSONObject): List<SearchResult> {
         val rows = mutableListOf<JSONObject>()
-        collectMusicRows(root, rows)
+        collectNodes(root, "musicResponsiveListItemRenderer", rows)
 
         val official = mutableListOf<SearchResult>()
         val userUploaded = mutableListOf<SearchResult>()
@@ -323,6 +351,66 @@ object InnerTube {
             if (isUserUpload) userUploaded += result else official += result
         }
         return official.ifEmpty { userUploaded }
+    }
+
+    /**
+     * The Trending carousel out of the explore page.
+     *
+     * Ordered by YouTube, not by us — that ordering *is* the chart, so
+     * re-ranking it here would throw away the only thing worth fetching.
+     * Every playable row is kept, official or not: the chart is already
+     * curated, and demoting a trending entry the user came here to see would
+     * be the filter misfiring outside search.
+     */
+    internal fun parseTrending(root: JSONObject): List<SearchResult> {
+        val shelves = mutableListOf<JSONObject>()
+        collectNodes(root, "musicCarouselShelfRenderer", shelves)
+
+        // Prefer the shelf YouTube calls Trending. If it ever renames it, fall
+        // back to the first carousel that holds playable rows rather than
+        // presenting an empty Discovery tab.
+        val target = shelves.firstOrNull { carouselTitle(it).equals("Trending", ignoreCase = true) }
+            ?: shelves.firstOrNull { carouselTitle(it).isNotEmpty() }
+            ?: return emptyList()
+
+        val rows = mutableListOf<JSONObject>()
+        collectNodes(target, "musicResponsiveListItemRenderer", rows)
+
+        val out = mutableListOf<SearchResult>()
+        val seen = mutableSetOf<String>()
+        for (row in rows) {
+            val (result, _) = parseMusicRow(row) ?: continue
+            if (!seen.add(result.videoId)) continue
+            out += result
+        }
+        return out
+    }
+
+    /**
+     * A carousel's heading, whichever of its shapes YouTube gave it.
+     *
+     * The runs are read straight off the title object rather than through
+     * [allRunsText], which looks for a nested `text` wrapper. A header's title
+     * carries its runs directly, so routing it through that helper returns an
+     * empty string — and an empty title makes the whole shelf look untitled,
+     * which silently dropped it from Discovery.
+     */
+    private fun carouselTitle(carousel: JSONObject): String {
+        val header = carousel.optJSONObject("header")
+            ?.optJSONObject("musicCarouselShelfBasicHeaderRenderer") ?: return ""
+
+        header.optJSONObject("title")?.let { title ->
+            title.optJSONArray("runs")?.let { runs ->
+                val sb = StringBuilder()
+                for (i in 0 until runs.length()) {
+                    sb.append(runs.optJSONObject(i)?.optString("text").orEmpty())
+                }
+                if (sb.isNotEmpty()) return sb.toString()
+            }
+            // The newer card shape wraps the same text under `content`.
+            title.optString("content").takeIf { it.isNotEmpty() }?.let { return it }
+        }
+        return header.optString("simpleText")
     }
 
     /**
@@ -394,9 +482,25 @@ object InnerTube {
             }
         }
         // Some rows give the artist as plain text rather than a browse link.
+        // Skip the pieces YouTube has already labelled a view count or a
+        // length, and the "Song"/"Video" kind tag — otherwise a user upload
+        // with no linked artist gets credited to "7.6M views".
         if (channel.isEmpty() && columns.size > 1) {
-            val meta = allRunsText(columns[1])
-            if (meta.contains('•')) channel = meta.substringAfter('•').trim()
+            for (piece in allRunsText(columns[1]).split('•')) {
+                val text = piece.trim()
+                if (text.isEmpty()) continue
+                if (text.contains("plays", ignoreCase = true)) continue
+                if (text.contains("views", ignoreCase = true)) continue
+                if (text.contains(':') && parseClock(text) > 0) continue
+                if (text.equals("Song", ignoreCase = true) ||
+                    text.equals("Video", ignoreCase = true) ||
+                    text.equals("Episode", ignoreCase = true)
+                ) {
+                    continue
+                }
+                channel = text
+                break
+            }
         }
 
         // A whitelist, not a blacklist. ATV is the label's own audio and OMV

@@ -2,7 +2,7 @@ package com.torrenttunes.app.ui.theme
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -11,81 +11,105 @@ import androidx.compose.ui.unit.sp
 
 // ---------------------------------------------------------------- palette
 //
-// SoundCloud's look in four words: white ground, black type, one loud orange,
-// hairline dividers. Everything else (the artwork tiles, the waveform) is
-// graded against these, so they live here rather than at each call site.
+// Spotify's and Apple Music's dark ground, with SoundCloud's orange kept as
+// the one loud accent. These are **roles, not literals**: `ScText` is whatever
+// the body colour is on the current ground, `ScSurface` whatever a filled
+// control sits on. That is what lets the whole app go dark by editing this
+// file alone.
+//
+// The ground is #121212 — dark enough to disappear behind album art, light
+// enough that hairlines and pressed states are still visible. Pure black is
+// reserved for the full-screen player, where it makes the artwork float.
 
-/** The brand orange. The single most recognisable thing about SoundCloud. */
+/** The brand orange. The one thing carried over from the light design. */
 val ScOrange = Color(0xFFFF5500)
 
-/** Near-black body type — pure #000 is harsh against white. */
-val ScInk = Color(0xFF1A1A1A)
+/** Body type. Near-white rather than #FFF, which glares on a dark ground. */
+val ScText = Color(0xFFEDEDED)
 
 /** Secondary type: timestamps, source names, sub-labels. */
-val ScInkSoft = Color(0xFF737373)
+val ScTextDim = Color(0xFF9B9B9B)
 
 /** Hairline dividers between list rows. */
-val ScLine = Color(0xFFEAEAEA)
+val ScDivider = Color(0xFF262626)
 
 /** Filled control backgrounds — the grey pill behind the search field. */
-val ScFill = Color(0xFFF2F2F2)
+val ScSurface = Color(0xFF1E1E1E)
+
+/** One step up from the ground: cards, sheets, the mini-player. */
+val ScCard = Color(0xFF191919)
 
 /** Waveform bars that are behind the playhead. */
-val ScWaveRest = Color(0xFFD8D8D8)
+val ScWaveRest = Color(0xFF3A3A3A)
 
-private val SoundCloudColors = lightColorScheme(
+/**
+ * The full-screen player's ground. It is tinted per track (see
+ * `playerGround`), so these are only the untinted fallbacks.
+ */
+val ScPlayerTop = Color(0xFF1B1D21)
+val ScPlayerBottom = Color(0xFF08090B)
+
+private val PineappleColors = darkColorScheme(
     primary = ScOrange,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFFFE7DA),
-    onPrimaryContainer = Color(0xFF7A2C00),
-    secondary = ScInk,
-    onSecondary = Color.White,
-    secondaryContainer = ScFill,
-    onSecondaryContainer = ScInk,
-    tertiary = Color(0xFF12967B),
-    onTertiary = Color.White,
-    background = Color.White,
-    onBackground = ScInk,
-    surface = Color.White,
-    onSurface = ScInk,
-    surfaceVariant = ScFill,
-    onSurfaceVariant = ScInkSoft,
-    outline = Color(0xFFDDDDDD),
-    outlineVariant = ScLine,
-    error = Color(0xFFD8342B),
-    onError = Color.White,
-    errorContainer = Color(0xFFFDECEA),
-    onErrorContainer = Color(0xFF8E211B),
+    primaryContainer = Color(0xFF3A1600),
+    onPrimaryContainer = Color(0xFFFFD2BC),
+    secondary = ScText,
+    onSecondary = Color.Black,
+    secondaryContainer = Color(0xFF2A2A2A),
+    onSecondaryContainer = ScText,
+    tertiary = Color(0xFF2FB79B),
+    onTertiary = Color.Black,
+    background = Color(0xFF121212),
+    onBackground = ScText,
+    surface = Color(0xFF121212),
+    onSurface = ScText,
+    surfaceVariant = ScSurface,
+    onSurfaceVariant = ScTextDim,
+    outline = Color(0xFF333333),
+    outlineVariant = ScDivider,
+    error = Color(0xFFFF6B61),
+    onError = Color.Black,
+    errorContainer = Color(0xFF3A1512),
+    onErrorContainer = Color(0xFFFFD2CE),
+    surfaceContainer = ScCard,
+    surfaceContainerHigh = Color(0xFF1F1F1F),
 )
 
 // ------------------------------------------------------------- typography
 //
-// SoundCloud leans on a heavy weight for titles and a small, quiet grey for
-// metadata — that contrast is most of what makes a row read instantly.
+// No new typeface — the app ships no font resource and adding one would mean
+// a new dependency. The modern feel comes from weight and tracking instead:
+// heavy titles pulled slightly tight, quiet metadata opened slightly up.
 
-private val SoundCloudTypography = Typography(
-    headlineSmall = TextStyle(fontWeight = FontWeight.Black, fontSize = 26.sp),
-    titleLarge = TextStyle(fontWeight = FontWeight.Bold, fontSize = 21.sp),
-    titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 17.sp),
-    titleSmall = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 15.sp),
-    bodyLarge = TextStyle(fontSize = 16.sp),
+private val PineappleTypography = Typography(
+    headlineSmall = TextStyle(
+        fontWeight = FontWeight.Bold,
+        fontSize = 26.sp,
+        letterSpacing = (-0.6).sp,
+        lineHeight = 32.sp,
+    ),
+    titleLarge = TextStyle(
+        fontWeight = FontWeight.Bold,
+        fontSize = 21.sp,
+        letterSpacing = (-0.3).sp,
+    ),
+    titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp),
+    titleSmall = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 14.sp),
+    bodyLarge = TextStyle(fontSize = 16.sp, letterSpacing = 0.1.sp),
     bodyMedium = TextStyle(fontSize = 14.sp),
     bodySmall = TextStyle(fontSize = 13.sp),
     labelLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 14.sp),
-    labelMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 13.sp),
-    labelSmall = TextStyle(fontWeight = FontWeight.Medium, fontSize = 11.sp),
+    labelMedium = TextStyle(fontWeight = FontWeight.Medium, fontSize = 13.sp),
+    labelSmall = TextStyle(fontWeight = FontWeight.Medium, fontSize = 11.sp, letterSpacing = 0.3.sp),
 )
 
-/**
- * Light-only on purpose: this app is styled after SoundCloud's classic
- * white-and-orange look, and a dark palette would flatten the artwork tiles
- * and waveform that carry the resemblance.
- */
+/** Dark-only: the light SoundCloud palette this replaced is gone. */
 @Composable
 fun TorrentTunesTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = SoundCloudColors,
-        typography = SoundCloudTypography,
+        colorScheme = PineappleColors,
+        typography = PineappleTypography,
         content = content,
     )
 }

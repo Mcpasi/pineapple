@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Pineapple's window, so the frame around Compose is dark too.
+
+    Without this the system bars stay on the light Material theme: a white
+    strip of status bar above a near-black app, with icons you cannot read.
+    Matching windowBackground to the Compose ground also removes the white
+    flash on a cold start, which is most of what makes a launch feel slow.
+-->
+<resources>
+    <color name="app_background">#121212</color>
+
+    <style name="Theme.Pineapple" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/app_background</item>
+        <item name="android:statusBarColor">@color/app_background</item>
+        <item name="android:navigationBarColor">@color/app_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

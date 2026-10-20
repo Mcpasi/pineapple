@@ -63,6 +63,33 @@ private fun artworkPalette(seed: String): List<Color> {
     return ArtworkPalettes[index]
 }
 
+/** Scales toward black without touching alpha, so the colour stays saturated. */
+private fun Color.darkened(factor: Float): Color =
+    Color(red = red * factor, green = green * factor, blue = blue * factor)
+
+/**
+ * The full-screen player's ground — a deep, dark tint of whatever [seed]
+ * would have coloured its artwork.
+ *
+ * This is the whole trick behind a player that feels like Apple Music's: the
+ * background is not one fixed colour but a per-track one, so the screen
+ * visibly belongs to the song. Pulled back hard enough (0.4 and 0.26) that it
+ * reads as tinted black rather than as a colour field, and anchored on the
+ * same near-black at the bottom so text always has something dark under it.
+ *
+ * Computed from the title rather than the bitmap: deriving a palette from the
+ * decoded album art would mean an AndroidX Palette dependency, and this app
+ * ships none.
+ */
+fun playerGroundColors(seed: String): List<Color> {
+    val palette = artworkPalette(seed)
+    return listOf(
+        palette[0].darkened(0.40f),
+        palette[1].darkened(0.26f),
+        Color(0xFF08090B),
+    )
+}
+
 /** Rounded gradient tile standing in for album art. */
 @Composable
 fun Artwork(

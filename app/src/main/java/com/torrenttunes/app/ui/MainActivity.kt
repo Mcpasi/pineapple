@@ -2,6 +2,7 @@ package com.torrenttunes.app.ui
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
@@ -19,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -64,6 +66,21 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Remembers the tab stack across rotation and process death.
+ *
+ * Enums are not Bundle-safe on their own, so the stack travels as its names
+ * and comes back as the matching [AppTab] values. Anything unrecognisable is
+ * dropped rather than crashing a restore — the user simply starts one page
+ * shallower than they were.
+ */
+private val TabHistorySaver = listSaver<List<AppTab>, String>(
+    save = { history -> history.map { it.name } },
+    restore = { names ->
+        names.mapNotNull { name -> AppTab.entries.firstOrNull { it.name == name } }
+    },
+)
+
 // --------------------------------------------------------------------- screen
 
 @Composable
@@ -76,8 +93,34 @@ fun TorrentTunesScreen(vm: MainViewModel, library: LibraryViewModel) {
 
     // rememberSaveable: a rotation must not dump you back on Search, and must
     // not silently close the player over a track that is still playing.
-    var tab by rememberSaveable { mutableStateOf(AppTab.SEARCH) }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
+
+    // Every tab opened so far, in order.
+    //
+    // The system back button walks back through this rather than leaving the
+    // app, so it returns to the page you were actually on. Held as a list
+    // rather than a single current-tab because "go back" has no meaning until
+    // there is somewhere to go back *to* — and once the list holds only its
+    // root there is nothing left, which is exactly when the app should close.
+    var tabHistory by rememberSaveable(stateSaver = TabHistorySaver) {
+        mutableStateOf(listOf(AppTab.SEARCH))
+    }
+    val tab = tabHistory.last()
+
+    /** Moves to [next], recording where it came from so back can return. */
+    fun goTab(next: AppTab) {
+        if (next != tab) tabHistory = tabHistory + next
+    }
+
+    // Registered while the player is open so the mini-player cannot swallow
+    // the gesture: back closes the player first, then unwinds the pages.
+    BackHandler(enabled = playerOpen || tabHistory.size > 1) {
+        if (playerOpen) {
+            playerOpen = false
+        } else {
+            tabHistory = tabHistory.dropLast(1)
+        }
+    }
 
     // The full-screen player is mounted *over* the scaffold rather than
     // beside it, so opening it cannot reflow the list underneath — audio is
@@ -96,14 +139,14 @@ fun TorrentTunesScreen(vm: MainViewModel, library: LibraryViewModel) {
         topBar = {
             // Kept on every tab, the way SoundCloud keeps its search bar:
             // typing anywhere should land you on your results.
-            SoundCloudTopBar(vm, onSubmit = { tab = AppTab.SEARCH })
+            SoundCloudTopBar(vm, onSubmit = { goTab(AppTab.SEARCH) })
         },
         bottomBar = {
             // Mini-player stacked directly above the nav bar so the two read
             // as one pinned unit, the way Spotify stacks them.
             Column {
                 PlayerBar(vm, onExpand = { playerOpen = true })
-                AppNavBar(current = tab, onSelect = { tab = it })
+                AppNavBar(current = tab, onSelect = ::goTab)
             }
         },
         containerColor = MaterialTheme.colorScheme.background,
@@ -136,7 +179,15 @@ fun TorrentTunesScreen(vm: MainViewModel, library: LibraryViewModel) {
                     onPlay = vm::playResult,
                     onAddToQueue = vm::addToQueue,
                 )
-                AppTab.DISCOVERY -> DiscoveryTab()
+                AppTab.DISCOVERY -> DiscoveryScreen(
+                    vm = vm,
+                    library = library,
+                    onPlay = vm::playResult,
+                    onOpenSearch = { goTab(AppTab.SEARCH) },
+                    // Already inside the padded column, so the list owns no
+                    // insets of its own.
+                    contentPadding = PaddingValues(0.dp),
+                )
             }
         }
     }
@@ -172,29 +223,6 @@ private fun SearchTab(vm: MainViewModel) {
 
             item(key = "bottom-spacer") { Spacer(Modifier.height(16.dp)) }
         }
-    }
-}
-
-/** Placeholder until Discovery gets real content. */
-@Composable
-private fun DiscoveryTab() {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-            .padding(top = 16.dp),
-    ) {
-        Text(
-            "Discovery",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "Coming soon — trending results and your recent plays will land here.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
@@ -249,10 +277,10 @@ private fun SoundCloudTopBar(vm: MainViewModel, onSubmit: () -> Unit = {}) {
                     singleLine = true,
                     shape = RoundedCornerShape(25.dp),
                     colors = TextFieldDefaults.colors(
-                        focusedContainerColor = ScFill,
-                        unfocusedContainerColor = ScFill,
-                        disabledContainerColor = ScFill,
-                        errorContainerColor = ScFill,
+                        focusedContainerColor = ScSurface,
+                        unfocusedContainerColor = ScSurface,
+                        disabledContainerColor = ScSurface,
+                        errorContainerColor = ScSurface,
                         focusedIndicatorColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent,
                         disabledIndicatorColor = Color.Transparent,
@@ -271,7 +299,7 @@ private fun SoundCloudTopBar(vm: MainViewModel, onSubmit: () -> Unit = {}) {
                     Modifier
                         .size(50.dp)
                         .clip(CircleShape)
-                        .background(if (canSearch) MaterialTheme.colorScheme.primary else ScFill)
+                        .background(if (canSearch) MaterialTheme.colorScheme.primary else ScSurface)
                         .clickable(enabled = canSearch) {
                             vm.search()
                             onSubmit()

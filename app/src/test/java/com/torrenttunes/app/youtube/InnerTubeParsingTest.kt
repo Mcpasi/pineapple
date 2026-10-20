@@ -109,8 +109,38 @@ class InnerTubeParsingTest {
     }
 
     @Test
-    fun `videos shelf rows and podcast episodes are not official`() {
-        // Two ways junk used to get through: a reaction video that arrives
+    fun `plain-text artist column ignores view counts and durations`() {
+        // A user upload with no linked artist page, whose metadata column is
+        // only "Video • 7.6M views • 4:35". The fallback used to take whatever
+        // followed the first separator, crediting the track to "7.6M views".
+        val row = plainRow(
+            title = "Hamari Anganaw",
+            videoId = "yViCc5kRnj4",
+            musicVideoType = "MUSIC_VIDEO_TYPE_UGC",
+            metadata = "Video \u2022 7.6M views \u2022 4:35",
+        )
+        val results = InnerTube.parseMusicSearch(JSONObject(shelfOf(row)))
+        assertEquals(1, results.size)
+        // Every remaining piece is something YouTube already labelled, so
+        // there is no name to show — which is better than the wrong one.
+        assertEquals("", results[0].channel)
+        assertEquals("4:35", results[0].durationLabel)
+    }
+
+    @Test
+    fun `plain-text artist column still picks up a real name`() {
+        val row = plainRow(
+            title = "Some Song",
+            videoId = "abc12345",
+            musicVideoType = "MUSIC_VIDEO_TYPE_UGC",
+            metadata = "Video \u2022 Sanity Tapes \u2022 4:35",
+        )
+        val results = InnerTube.parseMusicSearch(JSONObject(shelfOf(row)))
+        assertEquals("Sanity Tapes", results[0].channel)
+    }
+
+    @Test
+    fun `videos shelf rows and podcast episodes are not official`() {        // Two ways junk used to get through: a reaction video that arrives
         // with no musicVideoType at all, and a podcast episode that arrives
         // with a type we had simply never heard of.
         val results = InnerTube.parseMusicSearch(JSONObject(MUSIC_VIDEOS_SHELF_FIXTURE))
@@ -124,6 +154,33 @@ class InnerTubeParsingTest {
     fun `music search tolerates a missing container instead of throwing`() {
         assertTrue(InnerTube.parseMusicSearch(JSONObject("{}")).isEmpty())
         assertTrue(InnerTube.parseMusicSearch(JSONObject("""{"contents":{}}""")).isEmpty())
+    }
+
+    @Test
+    fun `trending picks the Trending carousel and keeps YouTube's order`() {
+        // Nesting is deliberately arbitrary: collectNodes walks by name, which
+        // is the whole reason this parse survives YouTube reshuffling pages.
+        val browse = """
+            {"contents":{"arbitrary":[
+              ${carousel("New albums & singles", "")},
+              ${carousel(
+                  "Trending",
+                  plainRow("First", "firstId", "MUSIC_VIDEO_TYPE_ATV", "Song \u2022 An Artist") + "," +
+                      plainRow("Second", "secondId", "MUSIC_VIDEO_TYPE_ATV", "Song \u2022 An Artist"),
+              )}
+            ]}}
+        """.trimIndent()
+
+        val results = InnerTube.parseTrending(JSONObject(browse))
+        assertEquals(listOf("firstId", "secondId"), results.map { it.videoId })
+        assertEquals("First", results[0].title)
+        assertEquals("An Artist", results[0].channel)
+    }
+
+    @Test
+    fun `trending tolerates a missing container instead of throwing`() {
+        assertTrue(InnerTube.parseTrending(JSONObject("{}")).isEmpty())
+        assertTrue(InnerTube.parseTrending(JSONObject("""{"contents":{}}""")).isEmpty())
     }
 
     // ------------------------------------------------------------ related
@@ -187,6 +244,58 @@ class InnerTubeParsingTest {
     // ------------------------------------------------------------ fixtures
 
     private companion object {
+
+        /**
+         * One `musicResponsiveListItemRenderer`: a title run carrying its
+         * watchEndpoint, plus a single metadata column.
+         *
+         * Built rather than pasted as a fixture because these exist only to
+         * exercise the metadata-column fallback, and a 30-line JSON blob would
+         * bury the one line that actually matters.
+         */
+        private fun plainRow(
+            title: String,
+            videoId: String,
+            musicVideoType: String,
+            metadata: String,
+        ): String {
+            // " • " separates facts inside a column, and it has to be a run of
+            // its own — dropping it fuses everything into one string, which is
+            // what the parser then sees as a single unparseable fact.
+            val pieces = metadata.split(" \u2022 ")
+            val metaRuns = pieces.flatMapIndexed { index, piece ->
+                buildList {
+                    if (index > 0) add("""{"text":" \u2022 "}""")
+                    add("""{"text":${JSONObject.quote(piece)}}""")
+                }
+            }.joinToString(",")
+            return """
+                {"musicResponsiveListItemRenderer":{"flexColumns":[
+                  {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[
+                    {"text":${JSONObject.quote(title)},"navigationEndpoint":{"watchEndpoint":{
+                      "videoId":${JSONObject.quote(videoId)},
+                      "watchEndpointMusicSupportedConfigs":{"watchEndpointMusicConfig":{
+                        "musicVideoType":${JSONObject.quote(musicVideoType)}
+                      }}
+                    }}}]}}},
+                  {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[$metaRuns]}}}
+                ]}}
+            """.trimIndent()
+        }
+
+        /** Wraps rows in the shelf shape `parseMusicSearch` expects. */
+        private fun shelfOf(vararg rows: String): String =
+            """{"contents":{"musicShelfRenderer":{"contents":[${rows.joinToString(",")}]}}}"""
+
+        /** One explore-page carousel, headed however YouTube headed it. */
+        private fun carousel(title: String, rows: String): String = """
+            {"musicCarouselShelfRenderer":{
+              "header":{"musicCarouselShelfBasicHeaderRenderer":{
+                "title":{"runs":[{"text":${JSONObject.quote(title)}}]}
+              }},
+              "contents":[$rows]
+            }}
+        """.trimIndent()
 
         const val SEARCH_FIXTURE = """
         {
