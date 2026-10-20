@@ -21,16 +21,18 @@ plays — with a continuous mix building behind whatever you picked.
 | Album art | Loads — was broken by main-thread HTTP, now fixed |
 | Playback threading | Wrong-thread crash fixed and verified (`onMain {}`) |
 | Continuous queue | Up to 6 related tracks enqueued behind the first |
-| UI | SoundCloud-style light theme: white ground, orange `#FF5500`, hairline dividers |
-| APK size | 72.6 MB → **12.4 MB** after fixing stale incremental packaging |
-| Unit tests | 12/12 passing, pinning YouTube's exact response schemas |
-| Library (in progress) | Likes / playlists / recents persisted, **not yet wired into the screen** |
+| UI | Dark theme throughout: `#121212` ground, orange `#FF5500` accent |
+| APK size | 72.6 MB → **12.5 MB** after fixing stale incremental packaging |
+| Unit tests | 23/23 passing, pinning YouTube's exact response schemas |
+| Library | Mounted: likes / playlists / recents, persisted across restarts |
 
 ## What does not work
 
-- **The Library and NowPlaying screens are not mounted** — they compile, but
-  `TorrentTunesScreen` still renders the single search column.
-- **Discovery tab** — placeholder only.
+- **Discovery's chart is a single `/browse` call** — if YouTube changes the
+  explore page's shelf naming, the tab falls back to the first carousel it
+  finds rather than erroring, but it may not be the chart you expected.
+- **The queue is not music-only** — `related()` still uses the plain web
+  `/next`, so a continuous mix can hand you a vlog between songs.
 - **PO tokens / WebView embed / bounded-range shim** — all three are gone on
   purpose; none of them is needed now. See [the fix](#the-403-and-the-fix).
 
@@ -129,30 +131,41 @@ and the obvious one (BotGuard) turned out to be required by *none* of them.
 
 ---
 
+### Official music only when searching
+
+Searching YouTube directly returned everything YouTube indexes — vlogs,
+podcasts, lyric uploads, reaction videos. YouTube Music's search returns only
+music, so the search path now queries it (client `WEB_REMIX`, id 67).
+
+It is filtered by a **whitelist, not a blacklist**: a result counts as official
+only when YouTube typed it `MUSIC_VIDEO_TYPE_ATV` (the label's own audio) or
+`MUSIC_VIDEO_TYPE_OMV` (its official video). A blacklist leaks — user uploads
+were easy to name, but podcast episodes arrive typed
+`MUSIC_VIDEO_TYPE_PODCAST_EPISODE` and labelled "Episode", and videos-shelf
+rows often carry no type at all. When nothing official matches, user uploads
+are returned rather than an empty list; better a rendition than no result.
+
+Playback stays on VISIONOS — the music search is only how a track is *found*.
+
+Measured on live traffic: `eminem` shows 9 results and drops 2 lyric videos,
+3 podcast episodes and 20 non-tracks; `seedhe maut` shows 8 and drops 3 live
+sessions, 3 podcast episodes and 24 non-tracks.
+
 ## Next steps
 
 Ordered by value:
 
-1. **Wire the library into the UI.** `LibraryStore` and `LibraryViewModel` are
-   built and compile, but `LibraryScreen` and `Navigation` are **not yet
-   mounted** — `TorrentTunesScreen` still renders the single search column.
-   The task is to add the bottom `AppNavBar` with Discovery / Search / Library
-   tabs and route to `LibraryScreen`.
-
-2. **Mount `NowPlayingScreen`.** Written, not yet reachable. Needs a
-   `currentTrack` flow on `MainViewModel` (set in `playResult`) so the like
-   toggle knows which track it is acting on — the parameter already exists on
-   the composable.
-
-3. **Discovery tab content.** Currently a placeholder. Natural options: trending
-   InnerTube results, or last-played.
-
-4. **Background/offline policy.** Per requirement: *nothing is downloaded
+1. **Background/offline policy.** Per requirement: *nothing is downloaded
    permanently unless the user explicitly makes an offline playlist*. Enforce
    this when a download path is eventually added — `LibraryStore` today stores
    only references, never media.
 
-5. **Keep the client list alive.** If playback ever 403s again, the first
+2. **Make the queue music-only.** `related()` still uses the plain web `/next`,
+   so a continuous mix can hand you a vlog between songs. `/next` has a
+   different response shape, so it is a separate job from the music search
+   filter.
+
+3. **Keep the client list alive.** If playback ever 403s again, the first
    question is "did YouTube retire `VISIONOS 1.02`?" — every number and the
    client matrix above are the baseline to re-run against
    (`probeClients.ps1`, `probeMatrix.ps1`, `probeRange.ps1`).
@@ -179,9 +192,10 @@ app/src/main/java/com/torrenttunes/app/
 ├── ui/
 │   ├── MainActivity.kt        Scaffold, top bar, results, player bar
 │   ├── MainViewModel.kt       Search / play / queue + 250 ms transport poll
-│   ├── Navigation.kt          AppTab + bottom nav (not yet mounted)
-│   ├── LibraryScreen.kt       Library tab + long-press actions sheet (not yet mounted)
-│   ├── NowPlayingScreen.kt    Full-screen Spotify-style player (not yet mounted)
+│   ├── Navigation.kt          AppTab + bottom nav, tab back-stack
+│   ├── LibraryScreen.kt       Library tab + long-press actions sheet
+│   ├── DiscoveryScreen.kt     Trending chart + recently played
+│   ├── NowPlayingScreen.kt    Full-screen player, per-track gradient
 │   ├── components/SoundCloudUi.kt   Artwork, Thumbnail, Waveform, Canvas glyphs
 │   └── theme/SoundCloudTheme.kt
 └── util/CrashLogger.kt
@@ -191,9 +205,12 @@ app/src/main/java/com/torrenttunes/app/
 
 - **No new dependencies.** InnerTube is written by hand rather than using
   NewPipeExtractor (GPLv3). HTTP is `HttpURLConnection`. Glyphs are Canvas.
-- **VISIONOS for `/player`, WEB for `/search` and `/next`.** VISIONOS returns
-  plain URLs with no `signatureCipher` *and* is the one client googlevideo
-  serves in full; WEB encrypts them behind a cipher needing a JS engine.
+- **VISIONOS for `/player`, WEB_REMIX for `/search` and `/browse`, WEB for
+  `/next`.** VISIONOS returns plain URLs with no `signatureCipher` *and* is the
+  one client googlevideo serves in full; WEB encrypts them behind a cipher
+  needing a JS engine. WEB_REMIX is YouTube Music, whose search returns only
+  music rather than all of YouTube's videos — see
+  [the music filter](#official-music-only-when-searching).
   `PLAYER_CLIENTS` in `InnerTube.kt` is the single place to bump when YouTube
   rotates client versions, and it leads with the client that works.
 - **Keep YouTube's relevance order** and flag index 0 as `BEST`. Deliberately
