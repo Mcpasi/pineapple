@@ -18,6 +18,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +32,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.torrenttunes.app.library.LibraryViewModel
 import com.torrenttunes.app.search.SearchResult
 import com.torrenttunes.app.ui.components.*
 import com.torrenttunes.app.ui.theme.*
@@ -40,12 +44,20 @@ class MainActivity : ComponentActivity() {
 
     private val vm: MainViewModel by viewModels()
 
+    /**
+     * Scoped here rather than obtained inside a composable, because Hilt's
+     * default factory already knows how to build a `@HiltViewModel` for an
+     * `@AndroidEntryPoint` activity — so no navigation-hilt artifact is needed
+     * to hand the same instance to Search, the Library tab and NowPlaying.
+     */
+    private val libraryVm: LibraryViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             TorrentTunesTheme {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    TorrentTunesScreen(vm)
+                    TorrentTunesScreen(vm, libraryVm)
                 }
             }
         }
@@ -55,20 +67,56 @@ class MainActivity : ComponentActivity() {
 // --------------------------------------------------------------------- screen
 
 @Composable
-fun TorrentTunesScreen(vm: MainViewModel) {
+fun TorrentTunesScreen(vm: MainViewModel, library: LibraryViewModel) {
     val state by vm.state.collectAsState()
     val crash by vm.lastCrash.collectAsState()
+    // Collected, not read: NowPlaying must follow a track change without
+    // needing to be closed and reopened first.
+    val currentTrack by vm.currentTrack.collectAsState()
+
+    // rememberSaveable: a rotation must not dump you back on Search, and must
+    // not silently close the player over a track that is still playing.
+    var tab by rememberSaveable { mutableStateOf(AppTab.SEARCH) }
+    var playerOpen by rememberSaveable { mutableStateOf(false) }
+
+    // The full-screen player is mounted *over* the scaffold rather than
+    // beside it, so opening it cannot reflow the list underneath — audio is
+    // owned by MainViewModel and keeps playing either way.
+    if (playerOpen) {
+        NowPlayingScreen(
+            vm = vm,
+            library = library,
+            currentTrack = currentTrack,
+            onClose = { playerOpen = false },
+        )
+        return
+    }
 
     Scaffold(
-        topBar = { SoundCloudTopBar(vm) },
-        bottomBar = { PlayerBar(vm) },
+        topBar = {
+            // Kept on every tab, the way SoundCloud keeps its search bar:
+            // typing anywhere should land you on your results.
+            SoundCloudTopBar(vm, onSubmit = { tab = AppTab.SEARCH })
+        },
+        bottomBar = {
+            // Mini-player stacked directly above the nav bar so the two read
+            // as one pinned unit, the way Spotify stacks them.
+            Column {
+                PlayerBar(vm, onExpand = { playerOpen = true })
+                AppNavBar(current = tab, onSelect = { tab = it })
+            }
+        },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
-        Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
+        Column(Modifier.padding(padding)) {
 
+            // Crashes and errors are app-wide, so they stay above the tab
+            // content instead of living inside the Search column.
             crash?.let { trace ->
                 Spacer(Modifier.height(8.dp))
-                CrashCard(trace = trace, onDismiss = vm::dismissCrash)
+                Box(Modifier.padding(horizontal = 16.dp)) {
+                    CrashCard(trace = trace, onDismiss = vm::dismissCrash)
+                }
             }
 
             state.error?.let {
@@ -77,30 +125,76 @@ fun TorrentTunesScreen(vm: MainViewModel) {
                     it,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
 
-            Spacer(Modifier.height(10.dp))
-            StatusLine(state)
-
-            Spacer(Modifier.height(8.dp))
-            LazyColumn(modifier = Modifier.weight(1f)) {
-
-                if (state.results.isEmpty() && !state.searching && state.error == null) {
-                    item(key = "empty") { EmptyState() }
-                }
-
-                items(state.results, key = { it.dedupeKey }) { result ->
-                    ResultRow(
-                        result = result,
-                        isLoading = state.loadingVideoId == result.videoId,
-                        onClick = { vm.playResult(result) },
-                    )
-                }
-
-                item(key = "bottom-spacer") { Spacer(Modifier.height(16.dp)) }
+            when (tab) {
+                AppTab.SEARCH -> SearchTab(vm)
+                AppTab.LIBRARY -> LibraryScreen(
+                    library = library,
+                    onPlay = vm::playResult,
+                    onAddToQueue = vm::addToQueue,
+                )
+                AppTab.DISCOVERY -> DiscoveryTab()
             }
         }
+    }
+}
+
+/**
+ * The original single search column, lifted out so the other tabs do not
+ * inherit its 16 dp gutters (Library draws its own).
+ */
+@Composable
+private fun SearchTab(vm: MainViewModel) {
+    val state by vm.state.collectAsState()
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+
+        Spacer(Modifier.height(10.dp))
+        StatusLine(state)
+
+        Spacer(Modifier.height(8.dp))
+        LazyColumn(Modifier.weight(1f)) {
+
+            if (state.results.isEmpty() && !state.searching && state.error == null) {
+                item(key = "empty") { EmptyState() }
+            }
+
+            items(state.results, key = { it.dedupeKey }) { result ->
+                ResultRow(
+                    result = result,
+                    isLoading = state.loadingVideoId == result.videoId,
+                    onClick = { vm.playResult(result) },
+                )
+            }
+
+            item(key = "bottom-spacer") { Spacer(Modifier.height(16.dp)) }
+        }
+    }
+}
+
+/** Placeholder until Discovery gets real content. */
+@Composable
+private fun DiscoveryTab() {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .padding(top = 16.dp),
+    ) {
+        Text(
+            "Discovery",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Coming soon — trending results and your recent plays will land here.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -112,7 +206,7 @@ fun TorrentTunesScreen(vm: MainViewModel) {
  * scroll underneath it, the way the real app behaves.
  */
 @Composable
-private fun SoundCloudTopBar(vm: MainViewModel) {
+private fun SoundCloudTopBar(vm: MainViewModel, onSubmit: () -> Unit = {}) {
     val state by vm.state.collectAsState()
 
     Surface(color = MaterialTheme.colorScheme.background) {
@@ -165,7 +259,9 @@ private fun SoundCloudTopBar(vm: MainViewModel) {
                         errorIndicatorColor = Color.Transparent,
                     ),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { vm.search() }),
+                    keyboardActions = KeyboardActions(
+                        onSearch = { vm.search(); onSubmit() },
+                    ),
                 )
 
                 Spacer(Modifier.width(10.dp))
@@ -176,7 +272,10 @@ private fun SoundCloudTopBar(vm: MainViewModel) {
                         .size(50.dp)
                         .clip(CircleShape)
                         .background(if (canSearch) MaterialTheme.colorScheme.primary else ScFill)
-                        .clickable(enabled = canSearch) { vm.search() },
+                        .clickable(enabled = canSearch) {
+                            vm.search()
+                            onSubmit()
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
                     if (state.searching) {
@@ -417,7 +516,7 @@ private fun CrashCard(trace: String, onDismiss: () -> Unit) {
  * scrub, then real album art, title, artist, and transport controls.
  */
 @Composable
-fun PlayerBar(vm: MainViewModel) {
+fun PlayerBar(vm: MainViewModel, onExpand: () -> Unit = {}) {
     val isPlaying by vm.isPlaying.collectAsState()
     val nowPlaying by vm.nowPlaying.collectAsState()
     val artist by vm.artist.collectAsState()
@@ -470,7 +569,14 @@ fun PlayerBar(vm: MainViewModel) {
                 Thumbnail(shownArtwork, shownTitle.ifEmpty { "Pineapple" }, size = 46.dp, corner = 5.dp)
                 Spacer(Modifier.width(12.dp))
 
-                Column(Modifier.weight(1f)) {
+                Column(
+                    Modifier
+                        .weight(1f)
+                        // Tapping the title opens the full-screen player, the
+                        // same affordance Spotify's mini-player gives you.
+                        // Disabled while idle so an empty bar invites no tap.
+                        .clickable(enabled = shownTitle.isNotEmpty(), onClick = onExpand),
+                ) {
                     Text(
                         shownTitle.ifEmpty { "Nothing playing" },
                         fontSize = 15.sp,

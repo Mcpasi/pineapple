@@ -274,6 +274,31 @@ class MainViewModel @Inject constructor(
     }
 
     /**
+     * Append one track to whatever is already queued, leaving the current
+     * track alone — this is what the library's long-press menu means by
+     * "Add to queue".
+     *
+     * Deliberately does **not** touch [currentTrack]: queueing is a request to
+     * have the song ready later, not a request to start listening now, and the
+     * full-screen player's like button must keep pointing at what is playing.
+     */
+    fun addToQueue(result: SearchResult) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val cached = streamCache.remove(result.videoId)
+                val resolved = cached ?: InnerTube.resolve(result.videoId)
+                playerController.enqueue(listOf(mediaItem(result, resolved)))
+                Log.i("Queue", "queued '${result.title}' (${if (cached != null) "prefetched" else "resolved"})")
+            } catch (t: Throwable) {
+                Log.w("Queue", "could not queue '${result.title}'", t)
+                _state.update {
+                    it.copy(error = t.message ?: "Could not add that track to the queue")
+                }
+            }
+        }
+    }
+
+    /**
      * Resolve the related tracks and append them, so tapping one song yields a
      * continuous mix instead of a single track that stops dead at the end.
      */
