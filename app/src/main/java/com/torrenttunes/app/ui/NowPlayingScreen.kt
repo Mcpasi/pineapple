@@ -51,6 +51,7 @@ import com.torrenttunes.app.ui.components.PauseGlyph
 import com.torrenttunes.app.ui.components.PlayGlyph
 import com.torrenttunes.app.ui.components.PreviousGlyph
 import com.torrenttunes.app.ui.components.Thumbnail
+import com.torrenttunes.app.ui.components.heartPath
 import com.torrenttunes.app.ui.components.playerGroundColors
 import com.torrenttunes.app.ui.theme.ScOrange
 import com.torrenttunes.app.ui.theme.ScSurface
@@ -305,7 +306,7 @@ private fun LikeToggle(liked: Boolean, onToggle: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(23.dp).graphicsLayer { scaleX = scale; scaleY = scale }) {
-            val path = heartPath(size.width, size.height)
+            val path = heartPath(this.size.width, this.size.height)
             if (liked) {
                 drawPath(path, ScOrange)
             } else {
@@ -315,15 +316,6 @@ private fun LikeToggle(liked: Boolean, onToggle: () -> Unit) {
             }
         }
     }
-}
-
-/** A bezier heart — the circle-and-triangle version read as a blob at 22 dp. */
-private fun heartPath(w: Float, h: Float): Path = Path().apply {
-    val cx = w / 2f
-    moveTo(cx, h * 0.84f)
-    cubicTo(w * -0.04f, h * 0.56f, w * 0.16f, h * 0.10f, cx, h * 0.34f)
-    cubicTo(w * 0.84f, h * 0.10f, w * 1.04f, h * 0.56f, cx, h * 0.84f)
-    close()
 }
 
 @Composable

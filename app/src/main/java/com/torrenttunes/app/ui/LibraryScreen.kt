@@ -48,6 +48,7 @@ import com.torrenttunes.app.library.LibraryViewModel
 import com.torrenttunes.app.library.Playlist
 import com.torrenttunes.app.search.SearchResult
 import com.torrenttunes.app.ui.components.Thumbnail
+import com.torrenttunes.app.ui.components.heartPath
 import com.torrenttunes.app.ui.theme.ScCard
 import com.torrenttunes.app.ui.theme.ScSurface
 import com.torrenttunes.app.ui.theme.ScText
@@ -273,21 +274,10 @@ private fun LikedTile(size: androidx.compose.ui.unit.Dp) {
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(size * 0.42f)) {
-            val w = this.size.width
-            val h = this.size.height
-            val k = 0.08f
-            val r = w * 0.30f
-            // Two lobes plus a V — a heart read at a glance.
-            drawCircle(Color.White, r, center = androidx.compose.ui.geometry.Offset(w * (0.5f - k), h * 0.36f))
-            drawCircle(Color.White, r, center = androidx.compose.ui.geometry.Offset(w * (0.5f + k), h * 0.36f))
-            val path = androidx.compose.ui.graphics.Path().apply {
-                moveTo(w * (0.5f - r), h * 0.40f)
-                lineTo(w * 0.5f, h * 0.86f)
-                lineTo(w * (0.5f + r), h * 0.40f)
-                close()
-            }
-            drawPath(path, Color.White)
+        Canvas(Modifier.size(size * 0.44f)) {
+            // The same heart the player's like toggle draws — one shape, so
+            // "liked" looks identical wherever it appears.
+            drawPath(heartPath(this.size.width, this.size.height), Color.White)
         }
     }
 }

@@ -90,6 +90,27 @@ fun playerGroundColors(seed: String): List<Color> {
     )
 }
 
+/**
+ * A bezier heart, drawn into a [w] x [h] box.
+ *
+ * One shape, used by both the Liked Songs tile and the player's like toggle.
+ * The earlier construction — two circles over a triangle — needed its radius
+ * and its triangle's width tuned against each other, and at the sizes this
+ * app uses it read as a white bar with a bump rather than as a heart.
+ *
+ * This traces the outline instead: up the left lobe to the dip between them,
+ * then back down the right lobe to the point.
+ */
+fun heartPath(w: Float, h: Float): Path = Path().apply {
+    val cx = w / 2f
+    moveTo(cx, h * 0.84f)
+    // Left lobe: out to the left edge, over the top, back to the centre dip.
+    cubicTo(w * -0.04f, h * 0.56f, w * 0.16f, h * 0.10f, cx, h * 0.34f)
+    // Right lobe: the mirror of it.
+    cubicTo(w * 0.84f, h * 0.10f, w * 1.04f, h * 0.56f, cx, h * 0.84f)
+    close()
+}
+
 /** Rounded gradient tile standing in for album art. */
 @Composable
 fun Artwork(
