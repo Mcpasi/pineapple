@@ -8,11 +8,12 @@ import org.junit.Test
 /**
  * Pins the exact InnerTube response shapes this app parses.
  *
- * These fixtures mirror payloads captured from youtube.com on 2026-10-19. The
- * parser is the single most fragile part of the app — when YouTube changes a
- * schema it breaks silently, with no exception and no crash, just an empty
- * list. A failing test here is the difference between "the app broke and I
- * know" and "the app broke and I found out from a user."
+ * These fixtures mirror payloads captured from youtube.com on 2026-10-19 and
+ * from YouTube Music (WEB_REMIX) on 2026-10-20. The parser is the single most
+ * fragile part of the app — when YouTube changes a schema it breaks silently,
+ * with no exception and no crash, just an empty list. A failing test here is
+ * the difference between "the app broke and I know" and "the app broke and I
+ * found out from a user."
  */
 class InnerTubeParsingTest {
 
@@ -64,6 +65,67 @@ class InnerTubeParsingTest {
         assertEquals(-1L, v.views)
     }
 
+    // ------------------------------------------------------- music search
+
+    @Test
+    fun `music search keeps official uploads ahead of user renditions`() {
+        val results = InnerTube.parseMusicSearch(JSONObject(MUSIC_FIXTURE))
+        assertEquals(2, results.size)
+        // Both ATV rows, in YouTube's order...
+        assertEquals("xTvyyoF_LZY", results[0].videoId)
+        assertEquals("DEYoQZnze80", results[1].videoId)
+        // ...and the slowed + reverb file behind them.
+        assertTrue(results.none { it.videoId == "mt0olxzbS28" })
+    }
+
+    @Test
+    fun `music search drops rows that are not tracks`() {
+        val results = InnerTube.parseMusicSearch(JSONObject(MUSIC_FIXTURE))
+        // The artist row has no watchEndpoint, so there is no videoId to play.
+        assertTrue(results.none { it.videoId.isEmpty() })
+        assertTrue(results.none { it.title == "Ed Sheeran" })
+    }
+
+    @Test
+    fun `music search extracts title artist and play count`() {
+        val first = InnerTube.parseMusicSearch(JSONObject(MUSIC_FIXTURE))[0]
+        assertEquals("Shape of You", first.title)
+        assertEquals("Ed Sheeran", first.channel)
+        assertEquals("9.5B plays", first.viewsLabel)
+        assertEquals(9_500_000_000L, first.views)
+        // YT Music shows plays rather than a clock for official songs.
+        assertEquals("", first.durationLabel)
+        assertEquals(0L, first.durationSec)
+        assertEquals("https://i.ytimg.com/vi/xTvyyoF_LZY/mqdefault.jpg", first.thumbUrl)
+    }
+
+    @Test
+    fun `music search falls back to user uploads when nothing official exists`() {
+        val results = InnerTube.parseMusicSearch(JSONObject(MUSIC_UGC_ONLY_FIXTURE))
+        assertEquals(1, results.size)
+        assertEquals("mt0olxzbS28", results[0].videoId)
+        assertEquals("4:35", results[0].durationLabel)
+        assertEquals(275L, results[0].durationSec)
+    }
+
+    @Test
+    fun `videos shelf rows and podcast episodes are not official`() {
+        // Two ways junk used to get through: a reaction video that arrives
+        // with no musicVideoType at all, and a podcast episode that arrives
+        // with a type we had simply never heard of.
+        val results = InnerTube.parseMusicSearch(JSONObject(MUSIC_VIDEOS_SHELF_FIXTURE))
+        assertEquals(1, results.size)
+        assertEquals("officialId", results[0].videoId)
+        assertTrue(results.none { it.videoId == "reactionId" })
+        assertTrue(results.none { it.videoId == "podcastId" })
+    }
+
+    @Test
+    fun `music search tolerates a missing container instead of throwing`() {
+        assertTrue(InnerTube.parseMusicSearch(JSONObject("{}")).isEmpty())
+        assertTrue(InnerTube.parseMusicSearch(JSONObject("""{"contents":{}}""")).isEmpty())
+    }
+
     // ------------------------------------------------------------ related
 
     @Test
@@ -107,6 +169,13 @@ class InnerTubeParsingTest {
         assertEquals(853_000L, InnerTube.parseCount("853K views"))
         assertEquals(1_234L, InnerTube.parseCount("1,234 views"))
         assertEquals(12L, InnerTube.parseCount("12 views"))
+    }
+
+    @Test
+    fun `counts parse YT Music play counts`() {
+        // YouTube Music says "plays" where the web client says "views".
+        assertEquals(9_500_000_000L, InnerTube.parseCount("9.5B plays"))
+        assertEquals(853_000L, InnerTube.parseCount("853K plays"))
     }
 
     @Test
@@ -188,6 +257,392 @@ class InnerTubeParsingTest {
                   ]
                 }
               }
+            }
+          }
+        }
+        """
+
+        /**
+         * A YouTube Music shelf exactly as captured: an official song, a
+         * user-uploaded rendition of the same query, a second official song,
+         * and an artist row that carries no videoId at all.
+         */
+        const val MUSIC_FIXTURE = """
+        {
+          "contents": {
+            "sectionListRenderer": {
+              "contents": [
+                {
+                  "itemSectionRenderer": {
+                    "contents": [
+                      {
+                        "musicShelfRenderer": {
+                          "contents": [
+                            {
+                              "musicResponsiveListItemRenderer": {
+                                "flexColumns": [
+                                  {
+                                    "musicResponsiveListItemFlexColumnRenderer": {
+                                      "text": {
+                                        "runs": [
+                                          {
+                                            "text": "Shape of You",
+                                            "navigationEndpoint": {
+                                              "watchEndpoint": {
+                                                "videoId": "xTvyyoF_LZY",
+                                                "watchEndpointMusicSupportedConfigs": {
+                                                  "watchEndpointMusicConfig": {
+                                                    "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "musicResponsiveListItemFlexColumnRenderer": {
+                                      "text": {
+                                        "runs": [
+                                          { "text": "Song" },
+                                          { "text": " \u2022 " },
+                                          {
+                                            "text": "Ed Sheeran",
+                                            "navigationEndpoint": {
+                                              "browseEndpoint": {
+                                                "browseId": "UClmXPfaYhXOYsNn_QUyheWQ",
+                                                "browseEndpointContextSupportedConfigs": {
+                                                  "browseEndpointContextMusicConfig": {
+                                                    "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "musicResponsiveListItemFlexColumnRenderer": {
+                                      "text": { "runs": [ { "text": "9.5B plays" } ] }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "musicResponsiveListItemRenderer": {
+                                "flexColumns": [
+                                  {
+                                    "musicResponsiveListItemFlexColumnRenderer": {
+                                      "text": {
+                                        "runs": [
+                                          {
+                                            "text": "Ed Sheeran - Shape of You (slowed and reverb)",
+                                            "navigationEndpoint": {
+                                              "watchEndpoint": {
+                                                "videoId": "mt0olxzbS28",
+                                                "watchEndpointMusicSupportedConfigs": {
+                                                  "watchEndpointMusicConfig": {
+                                                    "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "musicResponsiveListItemFlexColumnRenderer": {
+                                      "text": {
+                                        "runs": [
+                                          { "text": "Video" },
+                                          { "text": " \u2022 " },
+                                          { "text": "sanity" }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "musicResponsiveListItemFlexColumnRenderer": {
+                                      "text": {
+                                        "runs": [
+                                          { "text": " \u2022 " },
+                                          { "text": "4:35" }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "musicResponsiveListItemRenderer": {
+                                "flexColumns": [
+                                  {
+                                    "musicResponsiveListItemFlexColumnRenderer": {
+                                      "text": {
+                                        "runs": [
+                                          {
+                                            "text": "Shape of You",
+                                            "navigationEndpoint": {
+                                              "watchEndpoint": {
+                                                "videoId": "DEYoQZnze80",
+                                                "watchEndpointMusicSupportedConfigs": {
+                                                  "watchEndpointMusicConfig": {
+                                                    "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "musicResponsiveListItemFlexColumnRenderer": {
+                                      "text": {
+                                        "runs": [
+                                          { "text": "Song" },
+                                          { "text": " \u2022 " },
+                                          { "text": "Ed Sheeran" }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "musicResponsiveListItemRenderer": {
+                                "flexColumns": [
+                                  {
+                                    "musicResponsiveListItemFlexColumnRenderer": {
+                                      "text": {
+                                        "runs": [
+                                          {
+                                            "text": "Ed Sheeran",
+                                            "navigationEndpoint": {
+                                              "browseEndpoint": {
+                                                "browseId": "UClmXPfaYhXOYsNn_QUyheWQ",
+                                                "browseEndpointContextSupportedConfigs": {
+                                                  "browseEndpointContextMusicConfig": {
+                                                    "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+        """
+
+        /** The same query on a search where YouTube Music only has UGC results. */
+        const val MUSIC_UGC_ONLY_FIXTURE = """
+        {
+          "contents": {
+            "sectionListRenderer": {
+              "contents": [
+                {
+                  "musicShelfRenderer": {
+                    "contents": [
+                      {
+                        "musicResponsiveListItemRenderer": {
+                          "flexColumns": [
+                            {
+                              "musicResponsiveListItemFlexColumnRenderer": {
+                                "text": {
+                                  "runs": [
+                                    {
+                                      "text": "Ed Sheeran - Shape of You (slowed and reverb)",
+                                      "navigationEndpoint": {
+                                        "watchEndpoint": {
+                                          "videoId": "mt0olxzbS28",
+                                          "watchEndpointMusicSupportedConfigs": {
+                                            "watchEndpointMusicConfig": {
+                                              "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            {
+                              "musicResponsiveListItemFlexColumnRenderer": {
+                                "text": {
+                                  "runs": [
+                                    { "text": "Video" },
+                                    { "text": " \u2022 " },
+                                    { "text": "sanity" }
+                                  ]
+                                }
+                              }
+                            },
+                            {
+                              "musicResponsiveListItemFlexColumnRenderer": {
+                                "text": {
+                                  "runs": [
+                                    { "text": " \u2022 " },
+                                    { "text": "4:35" }
+                                  ]
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+        """
+
+        /**
+         * An official song alongside the two kinds of junk that used to leak
+         * through: a videos-shelf row with **no** `musicVideoType` (live
+         * sessions, reaction uploads) and a podcast episode typed with a
+         * classification we had simply never heard of.
+         */
+        const val MUSIC_VIDEOS_SHELF_FIXTURE = """
+        {
+          "contents": {
+            "musicShelfRenderer": {
+              "contents": [
+                {
+                  "musicResponsiveListItemRenderer": {
+                    "flexColumns": [
+                      {
+                        "musicResponsiveListItemFlexColumnRenderer": {
+                          "text": {
+                            "runs": [
+                              {
+                                "text": "Namunaaste",
+                                "navigationEndpoint": {
+                                  "watchEndpoint": {
+                                    "videoId": "officialId",
+                                    "watchEndpointMusicSupportedConfigs": {
+                                      "watchEndpointMusicConfig": {
+                                        "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "musicResponsiveListItemFlexColumnRenderer": {
+                          "text": {
+                            "runs": [
+                              { "text": "Song" },
+                              { "text": " \u2022 " },
+                              { "text": "Seedhe Maut" }
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "musicResponsiveListItemRenderer": {
+                    "flexColumns": [
+                      {
+                        "musicResponsiveListItemFlexColumnRenderer": {
+                          "text": {
+                            "runs": [
+                              {
+                                "text": "LIVE REACTION to Seedhe Maut's new song",
+                                "navigationEndpoint": {
+                                  "watchEndpoint": { "videoId": "reactionId" }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "musicResponsiveListItemFlexColumnRenderer": {
+                          "text": {
+                            "runs": [
+                              { "text": "Video" },
+                              { "text": " \u2022 " },
+                              { "text": "Some Random Channel" }
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "musicResponsiveListItemRenderer": {
+                    "flexColumns": [
+                      {
+                        "musicResponsiveListItemFlexColumnRenderer": {
+                          "text": {
+                            "runs": [
+                              {
+                                "text": "@raftaarmusic Talks About THE REAL STATE Of Indian Hip Hop",
+                                "navigationEndpoint": {
+                                  "watchEndpoint": {
+                                    "videoId": "podcastId",
+                                    "watchEndpointMusicSupportedConfigs": {
+                                      "watchEndpointMusicConfig": {
+                                        "musicVideoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "musicResponsiveListItemFlexColumnRenderer": {
+                          "text": {
+                            "runs": [
+                              { "text": "Episode" },
+                              { "text": " \u2022 " },
+                              { "text": "The Ranveer Show" }
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
             }
           }
         }

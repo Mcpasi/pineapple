@@ -3,6 +3,7 @@ package com.torrenttunes.app.youtube
 import com.torrenttunes.app.search.AudioStream
 import com.torrenttunes.app.search.Http
 import com.torrenttunes.app.search.SearchResult
+import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -30,6 +31,23 @@ object InnerTube {
 
     private const val KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
     private const val WEB_VERSION = "2.20241001.00.00"
+
+    // YouTube Music's web client (id 67). Used for search only — it is the one
+    // endpoint that answers with songs instead of everything on YouTube.
+    // Playback deliberately stays on VISIONOS.
+    private const val MUSIC_VERSION = "1.20250310.01.00"
+    private const val MUSIC_CLIENT_NAME = "67"
+
+    /**
+     * The only two `musicVideoType`s worth showing an artist search: the
+     * label's own audio, and its official music video. Everything else —
+     * user renditions, podcast episodes, videos-shelf rows with no type at
+     * all — is a blacklist waiting to leak a new category we never named.
+     */
+    private val OFFICIAL_MUSIC_TYPES = setOf(
+        "MUSIC_VIDEO_TYPE_ATV",
+        "MUSIC_VIDEO_TYPE_OMV",
+    )
     private const val ANDROID_UA =
         "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
@@ -150,7 +168,24 @@ object InnerTube {
      * Search for tracks. Results arrive in YouTube's own relevance order,
      * which for music queries already puts the real recording first.
      */
+    /**
+     * Search YouTube Music first; fall back to a plain web search only when
+     * Music gives us nothing.
+     *
+     * Music-first is the whole point. The WEB endpoint is a literal
+     * youtube.com search, so vlogs, podcasts, reactions and dance covers come
+     * back beside the track you meant. See [searchMusic].
+     */
     suspend fun search(query: String): List<SearchResult> {
+        val music = try {
+            searchMusic(query)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            null
+        }
+        if (!music.isNullOrEmpty()) return music
+
         val body = JSONObject()
             .put("context", webContext())
             .put("query", query)
@@ -193,6 +228,218 @@ object InnerTube {
         "X-Youtube-Client-Name" to "1",
         "X-Youtube-Client-Version" to WEB_VERSION,
     )
+
+    // --------------------------------------------------------- music search
+
+    /**
+     * YouTube Music's `/search` — the only request here that answers with
+     * **songs**.
+     *
+     * `WEB_REMIX` (client id 67) *is* YouTube Music, so every row is music by
+     * construction. Playback is untouched: streams still come from VISIONOS,
+     * the only client googlevideo serves in full.
+     *
+     * Two filters sit on top of that:
+     *
+     *  1. rows that are not tracks at all — Artist, Album, Single, Playlist,
+     *     podcast — carry no `videoId` and are dropped;
+     *  2. results are ranked against [OFFICIAL_MUSIC_TYPES]: `ATV` (the
+     *     label's own audio) and `OMV` (its official video) are what an
+     *     artist search is for. Everything else — UGC renditions, live
+     *     sessions, "reaction to X's music" uploads, and podcast episodes,
+     *     which arrive typed `MUSIC_VIDEO_TYPE_PODCAST_EPISODE` — sits
+     *     behind them. Preferred, never enforced: a query with no official
+     *     upload still gets music rather than a blank list.
+     *
+     * Returns `null` only when the request itself failed, which is what tells
+     * the caller to fall back to a web search.
+     */
+    private suspend fun searchMusic(query: String): List<SearchResult>? {
+        val body = JSONObject()
+            .put("context", musicContext())
+            .put("query", query)
+        val raw = try {
+            Http.postJson(
+                url = "${ENDPOINT}search?key=$KEY",
+                jsonBody = body.toString(),
+                headers = musicHeaders(),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            return null
+        }
+        val root = JSONObject(raw)
+        captureVisitor(root)
+        return parseMusicSearch(root)
+    }
+
+    private fun musicContext(): JSONObject = JSONObject().put(
+        "client", JSONObject()
+            .put("clientName", "WEB_REMIX")
+            .put("clientVersion", MUSIC_VERSION)
+            .put("hl", "en")
+            .put("gl", "US"),
+    )
+
+    private fun musicHeaders(): Map<String, String> = mapOf(
+        "X-Youtube-Client-Name" to MUSIC_CLIENT_NAME,
+        "X-Youtube-Client-Version" to MUSIC_VERSION,
+    )
+
+    /**
+     * Music rows do not live under `twoColumnSearchResultsRenderer` — they are
+     * handed out inside `musicShelfRenderer` / `musicCardShelfRenderer` nodes
+     * at varying depths, and a card is not shaped like a row. Walking for
+     * `musicResponsiveListItemRenderer` by name sidesteps the layout question
+     * entirely and survives YouTube reshuffling its sections.
+     */
+    private fun collectMusicRows(node: Any?, out: MutableList<JSONObject>) {
+        when (node) {
+            is JSONObject -> {
+                node.optJSONObject("musicResponsiveListItemRenderer")?.let { out += it }
+                val keys = node.keys()
+                while (keys.hasNext()) collectMusicRows(node.opt(keys.next()), out)
+            }
+            is JSONArray -> {
+                for (i in 0 until node.length()) collectMusicRows(node.opt(i), out)
+            }
+        }
+    }
+
+    internal fun parseMusicSearch(root: JSONObject): List<SearchResult> {
+        val rows = mutableListOf<JSONObject>()
+        collectMusicRows(root, rows)
+
+        val official = mutableListOf<SearchResult>()
+        val userUploaded = mutableListOf<SearchResult>()
+        // The walk covers the entire payload, so one song can surface twice —
+        // as a shelf row and again behind its top-result card. LazyColumn keys
+        // off videoId, where a repeat is a crash rather than a wrinkle.
+        val seen = mutableSetOf<String>()
+        for (row in rows) {
+            val (result, isUserUpload) = parseMusicRow(row) ?: continue
+            if (!seen.add(result.videoId)) continue
+            if (isUserUpload) userUploaded += result else official += result
+        }
+        return official.ifEmpty { userUploaded }
+    }
+
+    /**
+     * One `musicResponsiveListItemRenderer`:
+     *
+     *  - column 0 is the title, whose run carries the `watchEndpoint` — and
+     *    with it the video id and how YouTube classified it;
+     *  - column 1 is `"Song • Artist"` or `"Video • Channel"`;
+     *  - later columns hold view counts, and *only* non-official rows carry a
+     *    duration, because YT Music shows "9.5B plays" for songs instead.
+     *
+     * Returns the row plus whether it was a user upload, or `null` when this
+     * row was not a track at all.
+     */
+    private fun parseMusicRow(v: JSONObject): Pair<SearchResult, Boolean>? {
+        val flex = v.optJSONArray("flexColumns") ?: return null
+        val columns = mutableListOf<JSONObject>()
+        for (i in 0 until flex.length()) {
+            val col = flex.optJSONObject(i)
+                ?.optJSONObject("musicResponsiveListItemFlexColumnRenderer") ?: continue
+            columns += col
+        }
+        if (columns.isEmpty()) return null
+
+        val title = allRunsText(columns[0])
+        if (title.isEmpty()) return null
+
+        var endpoint = runsWatchEndpoint(columns[0])
+        if (endpoint?.optString("videoId").isNullOrEmpty()) {
+            endpoint = v.optJSONObject("overlay")
+                ?.optJSONObject("musicItemThumbnailOverlayRenderer")
+                ?.optJSONObject("content")
+                ?.optJSONObject("musicPlayButtonRenderer")
+                ?.optJSONObject("playNavigationEndpoint")
+                ?.optJSONObject("watchEndpoint")
+        }
+        val videoId = endpoint?.optString("videoId").orEmpty()
+        // An Artist, Album, Single, Playlist or podcast header: nothing here
+        // can be played, so drop the row rather than show a dead entry.
+        if (videoId.isEmpty()) return null
+
+        val musicType = endpoint
+            ?.optJSONObject("watchEndpointMusicSupportedConfigs")
+            ?.optJSONObject("watchEndpointMusicConfig")
+            ?.optString("musicVideoType").orEmpty()
+
+        var channel = ""
+        var durationLabel = ""
+        var viewsLabel = ""
+        for (i in 1 until columns.size) {
+            val runs = columns[i].optJSONObject("text")?.optJSONArray("runs") ?: continue
+            for (j in 0 until runs.length()) {
+                val run = runs.optJSONObject(j) ?: continue
+                if (channel.isEmpty() && isArtistRun(run)) {
+                    run.optString("text").takeIf { it.isNotBlank() }?.let { channel = it }
+                }
+            }
+            // A column can hold several facts separated by " • " — check each
+            // piece rather than the whole string, or "Video • 4:24" never
+            // parses as a clock.
+            for (piece in allRunsText(columns[i]).split('•')) {
+                val text = piece.trim()
+                if (text.isEmpty()) continue
+                if (durationLabel.isEmpty() && text.contains(':') && parseClock(text) > 0) {
+                    durationLabel = text
+                } else if (viewsLabel.isEmpty() && text.contains("plays", ignoreCase = true)) {
+                    viewsLabel = text
+                }
+            }
+        }
+        // Some rows give the artist as plain text rather than a browse link.
+        if (channel.isEmpty() && columns.size > 1) {
+            val meta = allRunsText(columns[1])
+            if (meta.contains('•')) channel = meta.substringAfter('•').trim()
+        }
+
+        // A whitelist, not a blacklist. ATV is the label's own audio and OMV
+        // its official video; nothing else belongs in an artist search. A
+        // blacklist leaks — UGC was easy to name, but podcast episodes arrive
+        // as MUSIC_VIDEO_TYPE_PODCAST_EPISODE labelled "Episode", and
+        // videos-shelf rows often carry no type at all.
+        val isUserUpload = musicType !in OFFICIAL_MUSIC_TYPES
+
+        return SearchResult(
+            videoId = videoId,
+            title = title,
+            channel = channel,
+            durationLabel = durationLabel,
+            durationSec = parseClock(durationLabel),
+            viewsLabel = viewsLabel,
+            views = if (viewsLabel.isEmpty()) -1L else parseCount(viewsLabel),
+            thumbUrl = thumbnailUrl(videoId),
+        ) to isUserUpload
+    }
+
+    /** Every run in `text`, joined. Titles are normally one run, not always. */
+    private fun allRunsText(node: JSONObject): String {
+        val runs = node.optJSONObject("text")?.optJSONArray("runs") ?: return ""
+        val sb = StringBuilder()
+        for (i in 0 until runs.length()) {
+            sb.append(runs.optJSONObject(i)?.optString("text").orEmpty())
+        }
+        return sb.toString()
+    }
+
+    /** The `watchEndpoint` on a column's first run, when there is one. */
+    private fun runsWatchEndpoint(node: JSONObject): JSONObject? =
+        node.optJSONObject("text")?.optJSONArray("runs")?.optJSONObject(0)
+            ?.optJSONObject("navigationEndpoint")?.optJSONObject("watchEndpoint")
+
+    /** True when a run points at an artist page rather than a plain label. */
+    private fun isArtistRun(run: JSONObject): Boolean =
+        run.optJSONObject("navigationEndpoint")
+            ?.optJSONObject("browseEndpoint")
+            ?.optJSONObject("browseEndpointContextSupportedConfigs")
+            ?.optJSONObject("browseEndpointContextMusicConfig")
+            ?.optString("pageType") == "MUSIC_PAGE_TYPE_ARTIST"
 
     // -------------------------------------------------------------- player
 
@@ -498,6 +745,8 @@ object InnerTube {
             .replace(",", "")
             .replace("views", "")
             .replace("watching", "")
+            // YT Music reports "9.5B plays" where the web client says "views".
+            .replace("plays", "")
             .trim()
         if (cleaned.isEmpty()) return -1L
         val suffix = cleaned.lastOrNull()
