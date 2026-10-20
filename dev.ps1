@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  One-command build + install + launch for TorrentTunes on a connected device.
+  One-command build + install + launch for Pineapple on a connected device.
 
 .EXAMPLE
   .\dev.ps1                  # build, install, launch
