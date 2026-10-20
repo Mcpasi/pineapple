@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  README banner.
+
+  Drawn rather than exported: a vector scales to whatever width the README
+  decides on, needs no image tool in the loop, and stays editable as a diff
+  instead of becoming an opaque binary in the repo.
+
+  Reuses the launcher's pineapple geometry so the mark on the page and the
+  mark on the home screen are the same shape, not two drawings of one idea.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 400" width="1400" height="400" role="img" aria-label="Pineapple — tap a song, it's already playing">
+
+  <defs>
+    <!-- The app's own ground: the #121212 it opens to, warmed slightly so the
+         corner has somewhere to fall away to. -->
+    <linearGradient id="ground" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1E1E1E" />
+      <stop offset="0.55" stop-color="#141414" />
+      <stop offset="1" stop-color="#0B0B0B" />
+    </linearGradient>
+
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FF5500" stop-opacity="0.34" />
+      <stop offset="0.55" stop-color="#FF5500" stop-opacity="0.10" />
+      <stop offset="1" stop-color="#FF5500" stop-opacity="0" />
+    </radialGradient>
+
+    <linearGradient id="artwork" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF7A2F" />
+      <stop offset="1" stop-color="#D63E00" />
+    </linearGradient>
+
+    <!-- Kept soft so the glow reads as light rather than as a circle. -->
+    <filter id="soften" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="34" />
+    </filter>
+
+    <filter id="lift" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000000" flood-opacity="0.55" />
+    </filter>
+  </defs>
+
+  <rect width="1400" height="400" fill="url(#ground)" />
+  <ellipse cx="185" cy="200" rx="230" ry="205" fill="url(#glow)" filter="url(#soften)" />
+
+  <!-- The mark: body ellipse plus three crown leaves, scaled from the
+       launcher's 108-unit canvas so both stay in step. -->
+  <g transform="translate(70,30) scale(3.2)" fill="#FF5500">
+    <path d="M54,45 C62.8,45 70,52.6 70,62 C70,71.4 62.8,79 54,79 C45.2,79 38,71.4 38,62 C38,52.6 45.2,45 54,45 Z" />
+    <path d="M54,26 L60,48 L48,48 Z" />
+    <path d="M39,32 L51,50 L42,50 Z" />
+    <path d="M69,32 L66,50 L57,50 Z" />
+  </g>
+
+  <!-- Hairline separating the mark from the wordmark. -->
+  <rect x="318" y="132" width="2" height="136" rx="1" fill="#FFFFFF" fill-opacity="0.14" />
+
+  <text x="356" y="200"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="92" font-weight="800" letter-spacing="9" fill="#FFFFFF">PINEAPPLE</text>
+
+  <text x="358" y="256"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="30" font-weight="400" letter-spacing="0.3" fill="#A0A0A0">Tap a song. It&#8217;s already playing.</text>
+
+  <!-- A phone, kept schematic: enough to say "music player" without pretending
+       to be a screenshot that will go stale the moment the UI is touched. -->
+  <g filter="url(#lift)">
+    <rect x="1116" y="26" width="212" height="348" rx="30" fill="#050505" />
+    <rect x="1124" y="34" width="196" height="332" rx="24" fill="#121212" />
+
+    <rect x="1196" y="46" width="52" height="7" rx="3.5" fill="#050505" />
+
+    <rect x="1146" y="72" width="152" height="152" rx="14" fill="url(#artwork)" />
+
+    <rect x="1146" y="246" width="118" height="13" rx="6.5" fill="#FFFFFF" fill-opacity="0.92" />
+    <rect x="1146" y="270" width="74" height="10" rx="5" fill="#7C7C7C" />
+
+    <rect x="1146" y="300" width="152" height="5" rx="2.5" fill="#3A3A3A" />
+    <rect x="1146" y="300" width="88" height="5" rx="2.5" fill="#FF5500" />
+
+    <circle cx="1222" cy="340" r="21" fill="#FF5500" />
+    <path d="M1216,330 L1234,340 L1216,350 Z" fill="#FFFFFF" />
+  </g>
+</svg>
