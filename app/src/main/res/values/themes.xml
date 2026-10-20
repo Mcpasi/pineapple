@@ -10,6 +10,10 @@
 <resources>
     <color name="app_background">#121212</color>
 
+    <!-- The launcher icon's ground, kept equal to the app background so the
+         icon and the app it opens look like the same object. -->
+    <color name="ic_launcher_background">#121212</color>
+
     <style name="Theme.Pineapple" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/app_background</item>
         <item name="android:statusBarColor">@color/app_background</item>

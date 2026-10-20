@@ -167,8 +167,16 @@ Ordered by value:
 
 3. **Keep the client list alive.** If playback ever 403s again, the first
    question is "did YouTube retire `VISIONOS 1.02`?" — every number and the
-   client matrix above are the baseline to re-run against
-   (`probeClients.ps1`, `probeMatrix.ps1`, `probeRange.ps1`).
+   client matrix above are the baseline to re-run against:
+
+   ```
+   python tools/probe_clients.py     # which player clients still serve files
+   python tools/probe_trending.py    # does Discovery's chart still parse
+   ```
+
+   Both mirror the Kotlin parsers, so a schema change shows up here as a
+   changed column rather than as a stack trace on a phone. See
+   [CONTRIBUTING](CONTRIBUTING.md#diagnosing-a-broken-build).
 
 *Not* on the list: the WebView player, the bounded-range shim, and PO tokens.
 All three are solved or superseded.
@@ -201,6 +209,20 @@ app/src/main/java/com/torrenttunes/app/
 └── util/CrashLogger.kt
 ```
 
+Alongside it:
+
+```
+app/src/main/res/
+├── drawable/ic_launcher_foreground.xml   Vector mark; no PNGs, minSdk 26
+├── mipmap-anydpi-v26/ic_launcher*.xml    Adaptive icon, round and square
+├── values/themes.xml                     Dark window + system bars
+└── xml/network_security_config.xml       HTTPS only
+
+tools/
+├── probe_clients.py                      Which player clients still serve files
+└── probe_trending.py                     Does Discovery's chart still parse
+```
+
 ### Deliberate decisions
 
 - **No new dependencies.** InnerTube is written by hand rather than using
@@ -226,13 +248,34 @@ app/src/main/java/com/torrenttunes/app/
 
 ## Building
 
+See [CONTRIBUTING](CONTRIBUTING.md) for setup, testing and the conventions
+this codebase follows.
+
 ```powershell
 .\gradlew.bat clean assembleDebug testDebugUnitTest --console=plain
 ```
 
 - JDK 17, `JAVA_HOME` and `ANDROID_HOME` set permanently.
 - `dev.ps1` provides `run | build | test | install | logs | devices | pair | clean`.
-- Debug APK: `app\build\outputs\apk\debug\app-debug.apk` (~12.4 MB).
+- Debug APK: `app\build\outputs\apk\debug\app-debug.apk` (~12.5 MB).
+
+### Release
+
+```powershell
+.\gradlew.bat clean assembleRelease --console=plain
+```
+
+R8 with resource shrinking, **1.9 MB**. Release builds are signed with the
+debug key when `keystore.properties` is absent, which it is on a fresh clone —
+deliberately, so the minified build actually gets tested. Installing a release
+build over an existing debug install is refused on signature mismatch, so keep
+using the debug build until you have a keystore of your own. See
+[Release signing](CONTRIBUTING.md#release-signing).
+
+Lint does not gate release builds: this AGP version crashes while analysing
+Hilt's generated code (`NonNullableMutableLiveDataDetector`,
+`IncompatibleClassChangeError`) — a tooling bug, not a finding. `gradlew lint`
+still produces the report.
 
 **Tested device:** Samsung Galaxy M21 (SM-M215F), Android 12, `arm64-v8a`,
 1080x2340.
@@ -243,17 +286,21 @@ app/src/main/java/com/torrenttunes/app/
 
 ### Tests
 
-`app/src/test/.../youtube/InnerTubeParsingTest.kt` — 12 tests pinning the
-exact response schemas (search fields, live-stream drop, non-video skip,
-`lockupViewModel` nesting, clock/count parsing). `org.json:json` is added as a
-test dependency because Android ships it as a stub.
+`app/src/test/.../youtube/InnerTubeParsingTest.kt` — **23 tests** pinning the
+exact response schemas: search fields, live-stream drop, non-video skip,
+`lockupViewModel` nesting, clock/count parsing, the official-music whitelist
+(including the podcast-episode and videos-shelf leaks), the plain-text artist
+fallback, and the trending parse. `org.json:json` is added as a test dependency
+because Android ships it as a stub.
 
 ---
 
 ## Naming
 
 Branding is **Pineapple**: the launcher label, the in-app wordmark, the crash
-banner and the fallback artwork letter.
+banner, the fallback artwork letter and the launcher icon — an orange mark on
+the same `#121212` the app opens to, drawn as a vector rather than density-bucketed
+PNGs (minSdk 26 is exactly where adaptive icons arrive).
 
 Deliberately left unchanged:
 
@@ -264,6 +311,15 @@ Deliberately left unchanged:
   user-visible.
 - **Local folder name** — left as `TorrentTunes` to avoid disturbing Gradle's
   project paths while paused.
+
+---
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) first — it covers the two rules that
+shape everything else (no new dependencies; stability outranks novelty), how
+to verify playback properly, and how to diagnose a broken build with the
+probes in `tools/`.
 
 ---
 

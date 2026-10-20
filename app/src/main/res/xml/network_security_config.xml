@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    HTTPS only.
+
+    Every endpoint this app talks to is already TLS — InnerTube for the API,
+    googlevideo for the stream itself, i.ytimg.com for artwork. Allowing
+    cleartext would widen the window for anyone on the same network to read or
+    alter what is being played, and would buy nothing in return.
+
+    Stated explicitly rather than left to the platform default, which has
+    changed between target SDKs and is easy to lose track of.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

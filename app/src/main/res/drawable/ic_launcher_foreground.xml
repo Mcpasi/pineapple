@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The launcher mark.
+
+    Vector rather than density-bucketed PNGs: the app's minSdk is 26, which is
+    exactly where adaptive icons arrive, so one XML covers every screen
+    density and there is no set of PNGs to regenerate when the artwork changes.
+
+    Drawn in the 108x108 adaptive canvas, with the whole mark kept inside the
+    centre 66x66 safe zone (21..87) — launchers crop to a circle or a squircle
+    outside that, and anything reaching past it loses its tips.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Body: an ellipse, centred low enough to leave room for the crown. -->
+    <path
+        android:fillColor="#FFFF5500"
+        android:pathData="M54,45
+            C62.8,45 70,52.6 70,62
+            C70,71.4 62.8,79 54,79
+            C45.2,79 38,71.4 38,62
+            C38,52.6 45.2,45 54,45 Z" />
+
+    <!-- Crown: three leaves fanning up from the top of the body. -->
+    <path
+        android:fillColor="#FFFF5500"
+        android:pathData="M54,26 L60,48 L48,48 Z" />
+    <path
+        android:fillColor="#FFFF5500"
+        android:pathData="M39,32 L51,50 L42,50 Z" />
+    <path
+        android:fillColor="#FFFF5500"
+        android:pathData="M69,32 L66,50 L57,50 Z" />
+</vector>

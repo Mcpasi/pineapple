@@ -137,6 +137,13 @@ object InnerTube {
         // client the Convx player ships with — the strongest fallback we have,
         // so it goes ahead of the ANDROID build that is known to return only
         // ciphered URLs.
+        //
+        // Re-checked 2026-10-21 with `tools/probe_clients.py`: ANDROID_VR now
+        // answers LOGIN_REQUIRED ("Sign in to confirm you're not a bot"), so
+        // it no longer serves as a fallback. Left in place because a dead
+        // client costs one wasted request and costs nothing to keep, but do
+        // not rely on it — and if a real second client is ever needed, that
+        // probe is how to find one.
         PlayerClient(
             name = "ANDROID_VR", version = "1.43.32", clientNameId = "28",
             userAgent = "com.google.android.apps.youtube.vr.oculus/1.43.32 " +
