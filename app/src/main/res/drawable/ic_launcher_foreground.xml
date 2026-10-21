@@ -1,14 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    The launcher mark.
+  Material Symbols Rounded, converted from the upstream SVG.
 
-    Vector rather than density-bucketed PNGs: the app's minSdk is 26, which is
-    exactly where adaptive icons arrive, so one XML covers every screen
-    density and there is no set of PNGs to regenerate when the artwork changes.
+  Licensed under the Apache License 2.0, which is compatible with this
+  project's MIT licence. https://fonts.google.com/icons
 
-    Drawn in the 108x108 adaptive canvas, with the whole mark kept inside the
-    centre 66x66 safe zone (21..87) — launchers crop to a circle or a squircle
-    outside that, and anything reaching past it loses its tips.
+  Material Symbols draws in a y-up-offset space: the viewBox is
+  "0 -960 960 960", so y runs from -960 to 0. Android's viewport runs 0 to 960
+  with y increasing downward. The two differ by a pure translation of +960 in
+  y, not a flip, so the path data below is byte-for-byte the upstream data and
+  the shift is applied once, by a group transform. Doing it that way means no
+  coordinate had to be recomputed by hand, which is where transcription bugs
+  would otherwise live.
+
+  Colours are deliberately omitted: these are tinted at the call site, so a
+  single asset serves both the active and inactive state of a control.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"

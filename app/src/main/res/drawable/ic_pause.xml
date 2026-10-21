@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Material Symbols Rounded, converted from the upstream SVG.
+
+  Licensed under the Apache License 2.0, which is compatible with this
+  project's MIT licence. https://fonts.google.com/icons
+
+  Material Symbols draws in a y-up-offset space: the viewBox is
+  "0 -960 960 960", so y runs from -960 to 0. Android's viewport runs 0 to 960
+  with y increasing downward. The two differ by a pure translation of +960 in
+  y, not a flip, so the path data below is byte-for-byte the upstream data and
+  the shift is applied once, by a group transform. Doing it that way means no
+  coordinate had to be recomputed by hand, which is where transcription bugs
+  would otherwise live.
+
+  Colours are deliberately omitted: these are tinted at the call site, so a
+  single asset serves both the active and inactive state of a control.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <group android:translateY="960">
+      <path android:pathData="M600-200q-33 0-56.5-23.5T520-280v-400q0-33 23.5-56.5T600-760h80q33 0 56.5 23.5T760-680v400q0 33-23.5 56.5T680-200h-80Zm-320 0q-33 0-56.5-23.5T200-280v-400q0-33 23.5-56.5T280-760h80q33 0 56.5 23.5T440-680v400q0 33-23.5 56.5T360-200h-80Zm320-80h80v-400h-80v400Zm-320 0h80v-400h-80v400Zm0-400v400-400Zm320 0v400-400Z"/>
+    </group>
+</vector>

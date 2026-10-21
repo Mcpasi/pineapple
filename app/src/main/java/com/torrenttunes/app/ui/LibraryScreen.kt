@@ -61,7 +61,6 @@ import com.torrenttunes.app.ui.components.Thumbnail
 import com.torrenttunes.app.ui.components.TrackActionsSheet
 import com.torrenttunes.app.ui.components.TrackRow
 import com.torrenttunes.app.ui.components.TrackRowSkeleton
-import com.torrenttunes.app.ui.components.heartPath
 import com.torrenttunes.app.ui.components.pineWindowWidth
 import com.torrenttunes.app.ui.theme.PineAccent
 import com.torrenttunes.app.ui.theme.PineDivider
@@ -251,9 +250,13 @@ private fun LikedTile(count: Int, onClick: () -> Unit) {
                 .background(Brush.linearGradient(listOf(PineAccent, Color(0xFFB04A00)))),
             contentAlignment = Alignment.Center,
         ) {
-            Canvas(Modifier.size(48.dp)) {
-                drawPath(heartPath(size.width, size.height), Color.White)
-            }
+            // The same filled heart the player and the actions sheet use, so
+            // "liked" is one shape across the whole app.
+            com.torrenttunes.app.ui.components.HeartGlyph(
+                glyphSize = 48.dp,
+                color = Color.White,
+                filled = true,
+            )
         }
         Spacer(Modifier.height(PineSpace.Sm))
         Text(
@@ -385,24 +388,7 @@ private fun PlaylistDetail(
                     .clickable(onClick = onBack),
                 contentAlignment = Alignment.Center,
             ) {
-                // Back chevron, mirrored from the player's dismiss glyph.
-                Canvas(Modifier.size(22.dp)) {
-                    val s = size.minDimension
-                    drawLine(
-                        PineTextPrimary,
-                        Offset(s * 0.62f, s * 0.26f),
-                        Offset(s * 0.38f, s * 0.5f),
-                        strokeWidth = s * 0.1f,
-                        cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                    )
-                    drawLine(
-                        PineTextPrimary,
-                        Offset(s * 0.38f, s * 0.5f),
-                        Offset(s * 0.62f, s * 0.74f),
-                        strokeWidth = s * 0.1f,
-                        cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                    )
-                }
+                com.torrenttunes.app.ui.components.BackGlyph(22.dp, PineTextPrimary)
             }
             Spacer(Modifier.width(PineSpace.Sm))
             Text(

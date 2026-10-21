@@ -314,18 +314,12 @@ private fun LikeButton(liked: Boolean, onToggle: () -> Unit) {
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(27.dp * scale)) {
-            val path = com.torrenttunes.app.ui.components.heartPath(size.width, size.height)
-            if (liked) {
-                drawPath(path, PineAccent)
-            } else {
-                drawPath(
-                    path,
-                    color = PineTextSecondary,
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = size.width * 0.08f),
-                )
-            }
-        }
+        // Scaled rather than re-laid-out, so the spring does not reflow the row.
+        com.torrenttunes.app.ui.components.HeartGlyph(
+            glyphSize = 27.dp * scale,
+            color = if (liked) PineAccent else PineTextSecondary,
+            filled = liked,
+        )
     }
 }
 

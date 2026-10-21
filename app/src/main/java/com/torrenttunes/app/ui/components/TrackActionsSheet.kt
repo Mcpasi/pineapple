@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.torrenttunes.app.R
 import com.torrenttunes.app.library.LibraryState
 import com.torrenttunes.app.library.LibraryViewModel
 import com.torrenttunes.app.search.SearchResult
@@ -284,46 +285,13 @@ private fun SheetAction(
 }
 
 // ---------------------------------------------------------------- glyphs
+//
+// Both delegate to the shared drawable-backed glyphs in PineappleUi.kt, so
+// the sheet's heart is the *same* silhouette the player and the Liked tile
+// use rather than a third approximation of one. No local wrappers: a private
+// `HeartGlyph` next to the imported one is an overload ambiguity, not an
+// alias.
 
-/** Heart used by the sheet, sharing the player's silhouette. */
+/** A playlist mark. */
 @Composable
-private fun HeartGlyph(size: Dp, color: Color, filled: Boolean) {
-    androidx.compose.foundation.Canvas(Modifier.size(size)) {
-        val path = heartPath(this.size.width, this.size.height)
-        if (filled) {
-            drawPath(path, color)
-        } else {
-            drawPath(
-                path,
-                color = color,
-                style = androidx.compose.ui.graphics.drawscope.Stroke(
-                    // `this.size` is the canvas, not the Dp parameter that
-                    // shadows it — `size.width` alone would be a `Dp`.
-                    width = this.size.width * 0.085f,
-                ),
-            )
-        }
-    }
-}
-
-/** A small stack-of-cards mark for a playlist. */
-@Composable
-private fun PlaylistGlyph(size: Dp, color: Color) {
-    androidx.compose.foundation.Canvas(Modifier.size(size)) {
-        val s = this.size.minDimension
-        val rad = androidx.compose.ui.geometry.CornerRadius(s * 0.1f, s * 0.1f)
-        // Back card, offset, then the front one over it.
-        drawRoundRect(
-            color = color.copy(alpha = 0.45f),
-            topLeft = androidx.compose.ui.geometry.Offset(s * 0.30f, s * 0.14f),
-            size = androidx.compose.ui.geometry.Size(s * 0.58f, s * 0.58f),
-            cornerRadius = rad,
-        )
-        drawRoundRect(
-            color = color,
-            topLeft = androidx.compose.ui.geometry.Offset(s * 0.14f, s * 0.28f),
-            size = androidx.compose.ui.geometry.Size(s * 0.58f, s * 0.58f),
-            cornerRadius = rad,
-        )
-    }
-}
+private fun PlaylistGlyph(size: Dp, color: Color) = PineIcon(R.drawable.ic_playlist_add, size, color)

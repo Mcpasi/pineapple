@@ -18,10 +18,36 @@ This is not a style preference, it is a constraint the app is built around:
   was found shipping ~60 MB of untracked bytes. Every dependency is a fight
   against that number.
 
-So InnerTube is hand-written Kotlin, HTTP is `HttpURLConnection`, and every
-icon is drawn on a `Canvas`. If you need a capability, write it. If you think
-you have found a dependency worth breaking the rule for, open an issue and
-argue it — do not just add it.
+So InnerTube is hand-written Kotlin and HTTP is `HttpURLConnection`. If you
+need a capability, write it. If you think you have found a *dependency*
+worth breaking the rule for, open an issue and argue it — do not just add it.
+
+**Bundled vector assets are not a dependency, and are allowed.**
+
+Icons are `res/drawable/ic_*.xml` vector drawables converted from **Material
+Symbols Rounded** (Apache-2.0, compatible with this project's MIT licence).
+They are plain files in the repo — no Gradle coordinate, no transitive graph,
+no build-time download. Each costs about 1 KB, so the whole set is ~31 KB
+against a 13 MB APK.
+
+What this permits and what it does not:
+
+- **Allowed:** converting an SVG from an Apache-2.0 / MIT / ISC icon set into
+  a vector drawable and committing it. Record the source and licence in the
+  file's own comment header.
+- **Not allowed:** `implementation("androidx.compose.material:material-icons-
+  extended")` or any other icon *library*. That is a dependency, it is ~5 MB,
+  and it drags a Compose version contract into the app for something a 1 KB
+  file already does.
+- **Not allowed:** raster icons. Vector only — a PNG needs a copy per density
+  and looks wrong on the next screen size.
+- **Never** copy assets from a GPL/AGPL source. The same rule as code.
+
+Note the reason the original "no bundled assets" wording was dropped: it
+conflated two different risks. A downloaded *library* threatens the APK size
+and the licence. A converted *vector* threatens neither, and hand-drawing
+approximations of a compass or a library mark was producing visibly worse
+icons than the set it was imitating.
 
 **2. Stability outranks novelty.**
 

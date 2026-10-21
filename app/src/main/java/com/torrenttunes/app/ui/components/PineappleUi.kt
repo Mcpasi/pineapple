@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,18 +43,19 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.torrenttunes.app.R
 import com.torrenttunes.app.search.SearchResult
 import com.torrenttunes.app.ui.theme.PineAccent
 import com.torrenttunes.app.ui.theme.PineDivider
@@ -146,20 +148,6 @@ fun playerGroundColors(seed: String): List<Color> {
         palette[1].darkened(0.24f),
         Color(0xFF08090B),
     )
-}
-
-/**
- * A bezier heart, drawn into a [w] x [h] box.
- *
- * One shape, used by the Liked Songs tile, the player's like toggle and the
- * empty state — so "saved" looks identical wherever it appears.
- */
-fun heartPath(w: Float, h: Float): Path = Path().apply {
-    val cx = w / 2f
-    moveTo(cx, h * 0.84f)
-    cubicTo(w * -0.04f, h * 0.56f, w * 0.16f, h * 0.10f, cx, h * 0.34f)
-    cubicTo(w * 0.84f, h * 0.10f, w * 1.04f, h * 0.56f, cx, h * 0.84f)
-    close()
 }
 
 /** A rounded gradient tile standing in for album art. */
@@ -361,280 +349,92 @@ fun Waveform(
 
 // ------------------------------------------------------------------ glyphs
 //
-// Drawn rather than loaded from a resource: no icon dependency, no font
-// coverage question, and they stay crisp at any size.
+// These are Material Symbols Rounded (Apache-2.0), converted from the
+// upstream SVG into Android vector drawables -- see drawable/ic_*.xml.
+//
+// Vectors rather than the hand-drawn Canvas glyphs they replace: a drawn
+// approximation of a compass or a library mark reads as amateur next to a
+// real icon set, and vector XML costs about 1 KB each so the APK barely
+// notices. This is bundled artwork, not a Gradle dependency, which is what
+// keeps it inside the project's "no new dependencies" rule.
+//
+// Every one is tinted at the call site, so a single asset covers a control's
+// active, inactive and accent states.
 
+/** Renders a bundled vector, tinted. The one place icons are loaded. */
 @Composable
-fun PlayGlyph(glyphSize: Dp, color: Color) {
-    Canvas(Modifier.size(glyphSize)) {
-        val path = Path().apply {
-            moveTo(size.width * 0.34f, size.height * 0.24f)
-            lineTo(size.width * 0.34f, size.height * 0.76f)
-            lineTo(size.width * 0.78f, size.height * 0.50f)
-            close()
-        }
-        drawPath(path, color = color)
-    }
+fun PineIcon(res: Int, glyphSize: Dp, color: Color, modifier: Modifier = Modifier) {
+    Icon(
+        painter = painterResource(res),
+        contentDescription = null,
+        tint = color,
+        modifier = modifier.size(glyphSize),
+    )
 }
 
 @Composable
-fun PauseGlyph(glyphSize: Dp, color: Color) {
-    Canvas(Modifier.size(glyphSize)) {
-        val w = size.width
-        val h = size.height
-        val barW = w * 0.17f
-        val top = h * 0.24f
-        val bottom = h * 0.76f
-        val radius = CornerRadius(barW / 2f, barW / 2f)
-        drawRoundRect(color, Offset(w * 0.27f, top), Size(barW, bottom - top), radius)
-        drawRoundRect(color, Offset(w * 0.56f, top), Size(barW, bottom - top), radius)
-    }
-}
+fun PlayGlyph(glyphSize: Dp, color: Color) = PineIcon(R.drawable.ic_play, glyphSize, color)
 
 @Composable
-fun SearchGlyph(glyphSize: Dp, color: Color, strokeWidth: Dp = 2.dp) {
-    Canvas(Modifier.size(glyphSize)) {
-        val w = size.width
-        val h = size.height
-        val stroke = strokeWidth.toPx()
-        val radius = w * 0.27f
-        val cx = w * 0.43f
-        val cy = h * 0.43f
-        drawCircle(color, radius, Offset(cx, cy), style = Stroke(stroke))
-        val d = radius * 0.7071f
-        drawLine(
-            color,
-            Offset(cx + d, cy + d),
-            Offset(w * 0.87f, h * 0.87f),
-            stroke,
-            cap = StrokeCap.Round,
-        )
-    }
-}
+fun PauseGlyph(glyphSize: Dp, color: Color) = PineIcon(R.drawable.ic_pause, glyphSize, color)
 
 @Composable
-fun NextGlyph(glyphSize: Dp, color: Color) {
-    Canvas(Modifier.size(glyphSize)) {
-        val w = size.width
-        val h = size.height
-        val path = Path().apply {
-            moveTo(w * 0.26f, h * 0.24f)
-            lineTo(w * 0.26f, h * 0.76f)
-            lineTo(w * 0.72f, h * 0.50f)
-            close()
-        }
-        drawPath(path, color = color)
-        // The trailing bar is what separates "next" from "play".
-        drawRoundRect(
-            color,
-            topLeft = Offset(w * 0.78f, h * 0.24f),
-            size = Size(w * 0.12f, h * 0.52f),
-            cornerRadius = CornerRadius(w * 0.06f, w * 0.06f),
-        )
-    }
-}
+fun SearchGlyph(glyphSize: Dp, color: Color, strokeWidth: Dp = 2.dp) =
+    PineIcon(R.drawable.ic_search, glyphSize, color)
 
 @Composable
-fun PreviousGlyph(glyphSize: Dp, color: Color) {
-    Canvas(Modifier.size(glyphSize)) {
-        val w = size.width
-        val h = size.height
-        val path = Path().apply {
-            moveTo(w * 0.74f, h * 0.24f)
-            lineTo(w * 0.74f, h * 0.76f)
-            lineTo(w * 0.28f, h * 0.50f)
-            close()
-        }
-        drawPath(path, color = color)
-        drawRoundRect(
-            color,
-            topLeft = Offset(w * 0.10f, h * 0.24f),
-            size = Size(w * 0.12f, h * 0.52f),
-            cornerRadius = CornerRadius(w * 0.06f, w * 0.06f),
-        )
-    }
-}
+fun NextGlyph(glyphSize: Dp, color: Color) = PineIcon(R.drawable.ic_next, glyphSize, color)
 
-/** Downward chevron — dismiss the full-screen player. */
 @Composable
-fun ChevronDownGlyph(glyphSize: Dp, color: Color, strokeWidth: Dp = 2.2.dp) {
-    Canvas(Modifier.size(glyphSize)) {
-        val s = size.minDimension
-        val stroke = strokeWidth.toPx()
-        drawLine(
-            color,
-            Offset(s * 0.24f, s * 0.40f),
-            Offset(s * 0.50f, s * 0.62f),
-            strokeWidth = stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            color,
-            Offset(s * 0.50f, s * 0.62f),
-            Offset(s * 0.76f, s * 0.40f),
-            strokeWidth = stroke,
-            cap = StrokeCap.Round,
-        )
-    }
-}
+fun PreviousGlyph(glyphSize: Dp, color: Color) =
+    PineIcon(R.drawable.ic_previous, glyphSize, color)
 
-/** Three dots — the overflow menu on a track row. */
 @Composable
-fun MoreGlyph(glyphSize: Dp, color: Color) {
-    Canvas(Modifier.size(glyphSize)) {
-        val s = size.minDimension
-        val r = s * 0.09f
-        val cy = s * 0.5f
-        drawCircle(color, r, Offset(s * 0.22f, cy))
-        drawCircle(color, r, Offset(s * 0.5f, cy))
-        drawCircle(color, r, Offset(s * 0.78f, cy))
-    }
-}
+fun ChevronDownGlyph(glyphSize: Dp, color: Color, strokeWidth: Dp = 2.2.dp) =
+    PineIcon(R.drawable.ic_chevron_down, glyphSize, color)
 
-/** Crossing arrows. */
 @Composable
-fun ShuffleGlyph(glyphSize: Dp, color: Color, strokeWidth: Dp = 1.8.dp) {
-    Canvas(Modifier.size(glyphSize)) {
-        val s = size.minDimension
-        val stroke = strokeWidth.toPx()
-        fun line(a: Offset, b: Offset) =
-            drawLine(color, a, b, strokeWidth = stroke, cap = StrokeCap.Round)
+fun MoreGlyph(glyphSize: Dp, color: Color) = PineIcon(R.drawable.ic_more, glyphSize, color)
 
-        line(Offset(s * 0.08f, s * 0.28f), Offset(s * 0.74f, s * 0.28f))
-        line(Offset(s * 0.08f, s * 0.72f), Offset(s * 0.74f, s * 0.72f))
-        line(Offset(s * 0.62f, s * 0.16f), Offset(s * 0.80f, s * 0.28f))
-        line(Offset(s * 0.62f, s * 0.84f), Offset(s * 0.80f, s * 0.72f))
-        // The crossing diagonal is what makes it read as a shuffle.
-        line(Offset(s * 0.16f, s * 0.28f), Offset(s * 0.84f, s * 0.72f))
-    }
-}
-
-/** Looping arrow; [once] adds a "1" to make it repeat-one. */
 @Composable
-fun RepeatGlyph(glyphSize: Dp, color: Color, once: Boolean = false, strokeWidth: Dp = 1.8.dp) {
-    Canvas(Modifier.size(glyphSize)) {
-        val s = size.minDimension
-        val stroke = strokeWidth.toPx()
-        val r = s * 0.26f
-        val c = Offset(s * 0.5f, s * 0.5f)
-        // An open arc leaves room for the arrow head.
-        drawArc(
-            color = color,
-            startAngle = -55f,
-            sweepAngle = 300f,
-            useCenter = false,
-            topLeft = Offset(c.x - r, c.y - r),
-            size = Size(r * 2, r * 2),
-            style = Stroke(width = stroke, cap = StrokeCap.Round),
-        )
-        val tip = Offset(s * 0.5f + r * 0.88f, s * 0.5f + r * 0.42f)
-        drawLine(color, Offset(tip.x - s * 0.13f, tip.y - s * 0.05f), tip, stroke, StrokeCap.Round)
-        drawLine(color, Offset(tip.x - s * 0.03f, tip.y - s * 0.14f), tip, stroke, StrokeCap.Round)
+fun ShuffleGlyph(glyphSize: Dp, color: Color, strokeWidth: Dp = 1.8.dp) =
+    PineIcon(R.drawable.ic_shuffle, glyphSize, color)
 
-        if (once) {
-            drawLine(
-                color,
-                Offset(s * 0.46f, s * 0.40f),
-                Offset(s * 0.52f, s * 0.40f),
-                stroke,
-                StrokeCap.Round,
-            )
-            drawLine(
-                color,
-                Offset(s * 0.52f, s * 0.40f),
-                Offset(s * 0.52f, s * 0.60f),
-                stroke,
-                StrokeCap.Round,
-            )
-        }
-    }
-}
-
-/** Three lines with a play caret — the queue / Up Next entry point. */
 @Composable
-fun QueueGlyph(glyphSize: Dp, color: Color, strokeWidth: Dp = 1.9.dp) {
-    Canvas(Modifier.size(glyphSize)) {
-        val s = size.minDimension
-        val stroke = strokeWidth.toPx()
-        drawLine(
-            color, Offset(s * 0.10f, s * 0.28f), Offset(s * 0.60f, s * 0.28f), stroke, StrokeCap.Round,
-        )
-        drawLine(
-            color, Offset(s * 0.10f, s * 0.50f), Offset(s * 0.60f, s * 0.50f), stroke, StrokeCap.Round,
-        )
-        drawLine(
-            color, Offset(s * 0.10f, s * 0.72f), Offset(s * 0.44f, s * 0.72f), stroke, StrokeCap.Round,
-        )
-        val path = Path().apply {
-            moveTo(s * 0.72f, s * 0.36f)
-            lineTo(s * 0.72f, s * 0.64f)
-            lineTo(s * 0.90f, s * 0.50f)
-            close()
-        }
-        drawPath(path, color)
-    }
-}
+fun RepeatGlyph(glyphSize: Dp, color: Color, once: Boolean = false, strokeWidth: Dp = 1.8.dp) =
+    PineIcon(R.drawable.ic_repeat, glyphSize, color)
 
-/** Map pin — the pinned marker in the Library. */
 @Composable
-fun PinGlyph(glyphSize: Dp, color: Color) {
-    Canvas(Modifier.size(glyphSize)) {
-        val s = size.minDimension
-        drawCircle(color, radius = s * 0.20f, center = Offset(s * 0.5f, s * 0.28f))
-        drawLine(
-            color,
-            start = Offset(s * 0.5f, s * 0.46f),
-            end = Offset(s * 0.5f, s * 0.90f),
-            strokeWidth = s * 0.14f,
-            cap = StrokeCap.Round,
-        )
-    }
-}
+fun QueueGlyph(glyphSize: Dp, color: Color, strokeWidth: Dp = 1.9.dp) =
+    PineIcon(R.drawable.ic_queue, glyphSize, color)
 
-/** Plus — add to a playlist. */
 @Composable
-fun PlusGlyph(glyphSize: Dp, color: Color, strokeWidth: Dp = 2.dp) {
-    Canvas(Modifier.size(glyphSize)) {
-        val s = size.minDimension
-        val stroke = strokeWidth.toPx()
-        drawLine(color, Offset(s * 0.5f, s * 0.22f), Offset(s * 0.5f, s * 0.78f), stroke, StrokeCap.Round)
-        drawLine(color, Offset(s * 0.22f, s * 0.5f), Offset(s * 0.78f, s * 0.5f), stroke, StrokeCap.Round)
-    }
-}
+fun PinGlyph(glyphSize: Dp, color: Color) = PineIcon(R.drawable.ic_pin, glyphSize, color)
 
-/** Cross — close, clear, dismiss. */
 @Composable
-fun CloseGlyph(glyphSize: Dp, color: Color, strokeWidth: Dp = 2.dp) {
-    Canvas(Modifier.size(glyphSize)) {
-        val s = size.minDimension
-        val stroke = strokeWidth.toPx()
-        drawLine(color, Offset(s * 0.28f, s * 0.28f), Offset(s * 0.72f, s * 0.72f), stroke, StrokeCap.Round)
-        drawLine(color, Offset(s * 0.72f, s * 0.28f), Offset(s * 0.28f, s * 0.72f), stroke, StrokeCap.Round)
-    }
-}
+fun PlusGlyph(glyphSize: Dp, color: Color, strokeWidth: Dp = 2.dp) =
+    PineIcon(R.drawable.ic_add, glyphSize, color)
 
-/** Circular arrow — retry a failed load. */
 @Composable
-fun RetryGlyph(glyphSize: Dp, color: Color, strokeWidth: Dp = 1.9.dp) {
-    Canvas(Modifier.size(glyphSize)) {
-        val s = size.minDimension
-        val stroke = strokeWidth.toPx()
-        val r = s * 0.30f
-        val c = Offset(s * 0.5f, s * 0.5f)
-        drawArc(
-            color = color,
-            startAngle = -90f,
-            sweepAngle = 290f,
-            useCenter = false,
-            topLeft = Offset(c.x - r, c.y - r),
-            size = Size(r * 2, r * 2),
-            style = Stroke(width = stroke, cap = StrokeCap.Round),
-        )
-        val tip = Offset(s * 0.5f + r * 0.70f, s * 0.5f + r * 0.60f)
-        drawLine(color, Offset(tip.x - s * 0.15f, tip.y - s * 0.02f), tip, stroke, StrokeCap.Round)
-        drawLine(color, Offset(tip.x - s * 0.04f, tip.y - s * 0.15f), tip, stroke, StrokeCap.Round)
-    }
-}
+fun CloseGlyph(glyphSize: Dp, color: Color, strokeWidth: Dp = 2.dp) =
+    PineIcon(R.drawable.ic_close, glyphSize, color)
+
+@Composable
+fun RetryGlyph(glyphSize: Dp, color: Color, strokeWidth: Dp = 1.9.dp) =
+    PineIcon(R.drawable.ic_retry, glyphSize, color)
+
+/** Back chevron for the playlist header. */
+@Composable
+fun BackGlyph(glyphSize: Dp, color: Color) = PineIcon(R.drawable.ic_back, glyphSize, color)
+
+/** Heart, filled or outlined — the same silhouette everywhere it appears. */
+@Composable
+fun HeartGlyph(glyphSize: Dp, color: Color, filled: Boolean) =
+    PineIcon(
+        if (filled) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline,
+        glyphSize,
+        color,
+    )
 
 // ------------------------------------------------------- reusable controls
 
