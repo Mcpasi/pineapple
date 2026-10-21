@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -328,6 +329,7 @@ private fun PlaylistArtwork(playlist: Playlist, size: Dp) {
         val paletteIndex = (playlist.name.hashCode() and Int.MAX_VALUE) % 10
         ArtworkGradients[paletteIndex]
     }
+    val letterSize = with(LocalDensity.current) { (size * 0.36f).toSp() }
     Box(
         Modifier
             .size(size)
@@ -339,7 +341,7 @@ private fun PlaylistArtwork(playlist: Playlist, size: Dp) {
             playlist.name.firstOrNull()?.uppercaseChar()?.toString() ?: "#",
             color = Color.White,
             fontWeight = FontWeight.Black,
-            fontSize = (size.value * 0.36f).sp,
+            fontSize = letterSize,
         )
     }
 }

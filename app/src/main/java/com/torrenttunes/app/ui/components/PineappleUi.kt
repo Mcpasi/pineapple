@@ -52,6 +52,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -162,6 +163,7 @@ fun Artwork(
     val letter = remember(seed) {
         seed.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar()?.toString() ?: "♪"
     }
+    val letterSize = with(LocalDensity.current) { (size * 0.38f).toSp() }
     Box(
         modifier
             .size(size)
@@ -173,7 +175,7 @@ fun Artwork(
             letter,
             color = Color.White,
             fontWeight = FontWeight.Black,
-            fontSize = (size.value * 0.38f).sp,
+            fontSize = letterSize,
         )
     }
 }
