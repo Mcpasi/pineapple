@@ -5,41 +5,114 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.torrenttunes.app.library.LibraryViewModel
 import com.torrenttunes.app.search.SearchResult
-import com.torrenttunes.app.ui.components.*
-import com.torrenttunes.app.ui.theme.*
+import com.torrenttunes.app.ui.components.CloseGlyph
+import com.torrenttunes.app.ui.components.NextGlyph
+import com.torrenttunes.app.ui.components.PauseGlyph
+import com.torrenttunes.app.ui.components.PineWindowWidth
+import com.torrenttunes.app.ui.components.PlayGlyph
+import com.torrenttunes.app.ui.components.PineIconButton
+import com.torrenttunes.app.ui.components.SearchGlyph
+import com.torrenttunes.app.ui.components.SectionHeader
+import com.torrenttunes.app.ui.components.StateMessage
+import com.torrenttunes.app.ui.components.Thumbnail
+import com.torrenttunes.app.ui.components.TrackRow
+import com.torrenttunes.app.ui.components.TrackRowSkeleton
+import com.torrenttunes.app.ui.components.Waveform
+import com.torrenttunes.app.ui.components.pineWindowWidth
+import com.torrenttunes.app.ui.theme.PineAccent
+import com.torrenttunes.app.ui.theme.PineBackground
+import com.torrenttunes.app.ui.theme.PineError
+import com.torrenttunes.app.ui.theme.PineGutter
+import com.torrenttunes.app.ui.theme.PineOnAccent
+import com.torrenttunes.app.ui.theme.PineRadius
+import com.torrenttunes.app.ui.theme.PineSpace
+import com.torrenttunes.app.ui.theme.PineSurface
+import com.torrenttunes.app.ui.theme.PineSurfaceHigh
+import com.torrenttunes.app.ui.theme.PineTextPrimary
+import com.torrenttunes.app.ui.theme.PineTextSecondary
+import com.torrenttunes.app.ui.theme.PineappleTheme
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.Locale
+
+/**
+ * Widest a phone layout may grow before it stops stretching.
+ *
+ * On a tablet or a folded-out screen the content is centred inside this
+ * rather than spread edge to edge — a 1200 dp-wide search row is harder to
+ * scan, not easier, and stretching a phone layout is not an adaptive layout.
+ */
+private val MaxContentWidth = 760.dp
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -57,9 +130,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            TorrentTunesTheme {
-                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    TorrentTunesScreen(vm, libraryVm)
+            PineappleTheme {
+                Surface(Modifier.fillMaxSize(), color = PineBackground) {
+                    PineappleScreen(vm, libraryVm)
                 }
             }
         }
@@ -84,12 +157,13 @@ private val TabHistorySaver = listSaver<List<AppTab>, String>(
 // --------------------------------------------------------------------- screen
 
 @Composable
-fun TorrentTunesScreen(vm: MainViewModel, library: LibraryViewModel) {
+fun PineappleScreen(vm: MainViewModel, library: LibraryViewModel) {
     val state by vm.state.collectAsState()
     val crash by vm.lastCrash.collectAsState()
     // Collected, not read: NowPlaying must follow a track change without
     // needing to be closed and reopened first.
     val currentTrack by vm.currentTrack.collectAsState()
+    val nowPlaying by vm.nowPlaying.collectAsState()
 
     // rememberSaveable: a rotation must not dump you back on Search, and must
     // not silently close the player over a track that is still playing.
@@ -135,93 +209,71 @@ fun TorrentTunesScreen(vm: MainViewModel, library: LibraryViewModel) {
         return
     }
 
+    val searchFocus = remember { FocusRequester() }
+
     Scaffold(
         topBar = {
-            // Kept on every tab, the way SoundCloud keeps its search bar:
-            // typing anywhere should land you on your results.
-            SoundCloudTopBar(vm, onSubmit = { goTab(AppTab.SEARCH) })
+            PineappleTopBar(
+                vm = vm,
+                focusRequester = searchFocus,
+                onSubmit = { goTab(AppTab.SEARCH) },
+            )
         },
         bottomBar = {
             // Mini-player stacked directly above the nav bar so the two read
             // as one pinned unit, the way Spotify stacks them.
             Column {
-                PlayerBar(vm, onExpand = { playerOpen = true })
+                AnimatedVisibility(
+                    visible = state.pending != null || nowPlaying.isNotEmpty(),
+                    enter = slideInVertically { it } + fadeIn(),
+                    exit = slideOutVertically { it } + fadeOut(),
+                ) {
+                    PlayerBar(vm, onExpand = { playerOpen = true })
+                }
                 AppNavBar(current = tab, onSelect = ::goTab)
             }
         },
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = PineBackground,
     ) { padding ->
-        Column(Modifier.padding(padding)) {
+        BoxWithConstraints(Modifier.padding(padding).fillMaxSize()) {
+            // On a wide window the phone layout is centred at a readable width
+            // rather than stretched edge to edge — a 1200 dp-wide search row is
+            // harder to scan, not easier.
+            val constrained =
+                if (maxWidth > MaxContentWidth) Modifier.widthIn(max = MaxContentWidth)
+                else Modifier.fillMaxWidth()
 
-            // Crashes and errors are app-wide, so they stay above the tab
-            // content instead of living inside the Search column.
-            crash?.let { trace ->
-                Spacer(Modifier.height(8.dp))
-                Box(Modifier.padding(horizontal = 16.dp)) {
-                    CrashCard(trace = trace, onDismiss = vm::dismissCrash)
+            Column(Modifier.fillMaxSize().then(constrained).align(Alignment.TopCenter)) {
+                crash?.let { trace ->
+                    Spacer(Modifier.height(PineSpace.Sm))
+                    Box(Modifier.padding(horizontal = PineGutter)) {
+                        CrashCard(trace = trace, onDismiss = vm::dismissCrash)
+                    }
+                }
+
+                state.error?.let {
+                    Spacer(Modifier.height(PineSpace.Sm))
+                    ErrorBanner(message = it)
+                }
+
+                when (tab) {
+                    AppTab.SEARCH -> SearchTab(vm)
+                    AppTab.LIBRARY -> LibraryScreen(
+                        library = library,
+                        onPlay = vm::playResult,
+                        onAddToQueue = vm::addToQueue,
+                        onOpenPlayer = { playerOpen = true },
+                    )
+                    AppTab.DISCOVERY -> DiscoveryScreen(
+                        vm = vm,
+                        library = library,
+                        onPlay = vm::playResult,
+                        onOpenSearch = { goTab(AppTab.SEARCH) },
+                        onOpenPlayer = { playerOpen = true },
+                        contentPadding = PaddingValues(0.dp),
+                    )
                 }
             }
-
-            state.error?.let {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-            }
-
-            when (tab) {
-                AppTab.SEARCH -> SearchTab(vm)
-                AppTab.LIBRARY -> LibraryScreen(
-                    library = library,
-                    onPlay = vm::playResult,
-                    onAddToQueue = vm::addToQueue,
-                )
-                AppTab.DISCOVERY -> DiscoveryScreen(
-                    vm = vm,
-                    library = library,
-                    onPlay = vm::playResult,
-                    onOpenSearch = { goTab(AppTab.SEARCH) },
-                    // Already inside the padded column, so the list owns no
-                    // insets of its own.
-                    contentPadding = PaddingValues(0.dp),
-                )
-            }
-        }
-    }
-}
-
-/**
- * The original single search column, lifted out so the other tabs do not
- * inherit its 16 dp gutters (Library draws its own).
- */
-@Composable
-private fun SearchTab(vm: MainViewModel) {
-    val state by vm.state.collectAsState()
-
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-
-        Spacer(Modifier.height(10.dp))
-        StatusLine(state)
-
-        Spacer(Modifier.height(8.dp))
-        LazyColumn(Modifier.weight(1f)) {
-
-            if (state.results.isEmpty() && !state.searching && state.error == null) {
-                item(key = "empty") { EmptyState() }
-            }
-
-            items(state.results, key = { it.dedupeKey }) { result ->
-                ResultRow(
-                    result = result,
-                    isLoading = state.loadingVideoId == result.videoId,
-                    onClick = { vm.playResult(result) },
-                )
-            }
-
-            item(key = "bottom-spacer") { Spacer(Modifier.height(16.dp)) }
         }
     }
 }
@@ -229,243 +281,209 @@ private fun SearchTab(vm: MainViewModel) {
 // ------------------------------------------------------------------ top bar
 
 /**
- * SoundCloud's header: the wordmark in brand orange, a filled grey pill for
- * search, and a round orange submit button. Pinned above the list so results
- * scroll underneath it, the way the real app behaves.
+ * Branding plus the search field, pinned above every tab.
+ *
+ * Keeping search on every page is deliberate: typing anywhere should land you
+ * on results, rather than making you navigate to Search first.
  */
 @Composable
-private fun SoundCloudTopBar(vm: MainViewModel, onSubmit: () -> Unit = {}) {
+private fun PineappleTopBar(
+    vm: MainViewModel,
+    focusRequester: FocusRequester,
+    onSubmit: () -> Unit = {},
+) {
     val state by vm.state.collectAsState()
+    val focusManager = LocalFocusManager.current
 
-    Surface(color = MaterialTheme.colorScheme.background) {
+    Surface(color = PineBackground) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 12.dp),
+                .padding(start = PineGutter, end = PineGutter, top = PineSpace.Md, bottom = PineSpace.Sm),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "Pineapple",
                     style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    letterSpacing = (-0.5).sp,
+                    color = PineAccent,
+                    letterSpacing = (-0.6).sp,
+                    modifier = Modifier.semantics { contentDescription = "Pineapple" },
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
                     "STREAMS INSTANTLY",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Black,
-                    letterSpacing = 0.8.sp,
-                    color = MaterialTheme.colorScheme.primary,
+                    letterSpacing = 0.9.sp,
+                    color = PineOnAccent,
                     modifier = Modifier
-                        .background(
-                            MaterialTheme.colorScheme.primaryContainer,
-                            RoundedCornerShape(4.dp),
-                        )
+                        .background(PineAccent, RoundedCornerShape(PineRadius.Sm))
                         .padding(horizontal = 7.dp, vertical = 3.dp),
                 )
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(PineSpace.Md))
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextField(
-                    value = state.query,
-                    onValueChange = vm::onQueryChange,
-                    modifier = Modifier.weight(1f).height(50.dp),
-                    placeholder = { Text("Search songs, artists, albums") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(25.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = ScSurface,
-                        unfocusedContainerColor = ScSurface,
-                        disabledContainerColor = ScSurface,
-                        errorContainerColor = ScSurface,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        disabledIndicatorColor = Color.Transparent,
-                        errorIndicatorColor = Color.Transparent,
-                    ),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(
-                        onSearch = { vm.search(); onSubmit() },
-                    ),
-                )
-
-                Spacer(Modifier.width(10.dp))
-
-                val canSearch = !state.searching && state.query.isNotBlank()
-                Box(
-                    Modifier
-                        .size(50.dp)
-                        .clip(CircleShape)
-                        .background(if (canSearch) MaterialTheme.colorScheme.primary else ScSurface)
-                        .clickable(enabled = canSearch) {
-                            vm.search()
-                            onSubmit()
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (state.searching) {
-                        CircularProgressIndicator(
-                            Modifier.size(22.dp),
-                            strokeWidth = 2.dp,
-                            color = if (canSearch) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    } else {
-                        SearchGlyph(
-                            24.dp,
-                            if (canSearch) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-// --------------------------------------------------------------- status line
-
-@Composable
-private fun StatusLine(state: UiState) {
-    when {
-        state.searching -> {
-            LinearProgressIndicator(
+            TextField(
+                value = state.query,
+                onValueChange = vm::onQueryChange,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp)),
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Searching…",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        state.status != null -> {
-            Text(
-                buildString {
-                    append(state.status)
-                    if (state.queueSize > 1) append(" · ${state.queueSize} in queue")
+                    .height(48.dp)
+                    .focusRequester(focusRequester),
+                placeholder = {
+                    Text(
+                        "Search songs, artists, albums",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = PineTextSecondary,
+                    )
                 },
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                leadingIcon = {
+                    SearchGlyph(19.dp, PineTextSecondary)
+                },
+                trailingIcon = {
+                    if (state.query.isNotEmpty()) {
+                        PineIconButton(
+                            onClick = {
+                                vm.onQueryChange("")
+                                focusManager.clearFocus()
+                            },
+                            targetSize = 40.dp,
+                            glyph = { CloseGlyph(17.dp, PineTextSecondary) },
+                        )
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(PineRadius.Pill),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = PineSurfaceHigh,
+                    unfocusedContainerColor = PineSurfaceHigh,
+                    disabledContainerColor = PineSurfaceHigh,
+                    errorContainerColor = PineSurfaceHigh,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent,
+                    errorIndicatorColor = Color.Transparent,
+                    focusedTextColor = PineTextPrimary,
+                    unfocusedTextColor = PineTextPrimary,
+                    cursorColor = PineAccent,
+                ),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(
+                    onSearch = {
+                        vm.search()
+                        focusManager.clearFocus()
+                        onSubmit()
+                    },
+                ),
             )
         }
     }
 }
 
-// ----------------------------------------------------------------- result row
+// ----------------------------------------------------------------- search
 
 @Composable
-private fun ResultRow(
-    result: SearchResult,
-    isLoading: Boolean,
-    onClick: () -> Unit,
-) {
-    Column {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable(enabled = !isLoading, onClick = onClick)
-                .padding(horizontal = 16.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
+private fun SearchTab(vm: MainViewModel) {
+    val state by vm.state.collectAsState()
+    val currentTrack by vm.currentTrack.collectAsState()
+
+    Column(Modifier.fillMaxSize()) {
+        // Progress under the field rather than a spinner inside it: a thin
+        // accent rule reads as "working" without stealing focus from results.
+        if (state.searching) {
+            LinearProgressRule()
+        }
+
+        LazyColumn(
+            Modifier.weight(1f),
+            contentPadding = PaddingValues(bottom = PineSpace.Xl),
         ) {
-            Box {
-                Thumbnail(result.thumbUrl, result.title, size = 52.dp, corner = 6.dp)
-                if (isLoading) {
-                    Box(
-                        Modifier
-                            .size(52.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color.Black.copy(alpha = 0.45f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(
-                            Modifier.size(22.dp),
-                            strokeWidth = 2.dp,
-                            color = Color.White,
+            when {
+                state.error != null && state.results.isEmpty() -> {
+                    item(key = "error") {
+                        StateMessage(
+                            title = "Could not search",
+                            body = state.error,
+                            actionLabel = "Try again",
+                            onAction = { vm.search() },
+                            glyph = { size, color -> SearchGlyph(size, color, 3.dp) },
                         )
                     }
                 }
-            }
 
-            Spacer(Modifier.width(12.dp))
-
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (result.isTopPick) {
-                        Text(
-                            "BEST",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 0.6.sp,
-                            color = Color.White,
-                            modifier = Modifier
-                                .background(
-                                    MaterialTheme.colorScheme.primary,
-                                    RoundedCornerShape(3.dp),
-                                )
-                                .padding(horizontal = 5.dp, vertical = 2.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                    }
-                    Text(
-                        result.title,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                state.searching && state.results.isEmpty() -> {
+                    items(6) { key -> TrackRowSkeleton() }
                 }
 
-                Spacer(Modifier.height(3.dp))
+                state.results.isEmpty() -> {
+                    item(key = "empty") {
+                        StateMessage(
+                            title = "Search Pineapple",
+                            body = "Find a song, artist or album. Tap any result and it starts " +
+                                "playing straight away, with a mix building behind it.",
+                            glyph = { size, color -> SearchGlyph(size, color, 3.dp) },
+                        )
+                    }
+                }
 
-                Text(
-                    buildString {
-                        if (result.channel.isNotEmpty()) append(result.channel)
-                        if (result.durationLabel.isNotEmpty()) {
-                            if (isNotEmpty()) append(" · ")
-                            append(result.durationLabel)
+                else -> {
+                    state.status?.let { s ->
+                        item(key = "status") {
+                            Text(
+                                s,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = PineTextSecondary,
+                                modifier = Modifier.padding(
+                                    start = PineGutter,
+                                    end = PineGutter,
+                                    top = PineSpace.Sm,
+                                    bottom = PineSpace.Xs,
+                                ),
+                            )
                         }
-                        if (result.viewsLabel.isNotEmpty()) {
-                            if (isNotEmpty()) append(" · ")
-                            append(result.viewsLabel)
-                        }
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+                    }
 
-            Spacer(Modifier.width(10.dp))
-
-            Box(
-                Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
-                } else {
-                    PlayGlyph(18.dp, Color.White)
+                    items(state.results, key = { it.dedupeKey }) { result ->
+                        TrackRow(
+                            track = result,
+                            onClick = { vm.playResult(result) },
+                            isLoading = state.loadingVideoId == result.videoId,
+                            isCurrent = currentTrack?.videoId == result.videoId,
+                        )
+                    }
                 }
             }
         }
-        HorizontalDivider(
-            modifier = Modifier.padding(start = 80.dp),
-            color = MaterialTheme.colorScheme.outlineVariant,
+    }
+}
+
+/** A thin indeterminate rule shown while a search is in flight. */
+@Composable
+private fun LinearProgressRule() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(2.dp)
+            .background(PineSurfaceHigh),
+    ) {
+        // A short accent segment sweeping across, drawn as a simple animated
+        // bar rather than pulling in a progress component for 2 dp.
+        val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "rule")
+        val frac by transition.animateFloat(
+            initialValue = 0.05f,
+            targetValue = 0.45f,
+            animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                animation = androidx.compose.animation.core.tween(620),
+                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+            ),
+            label = "rule-frac",
+        )
+        Box(
+            Modifier
+                .fillMaxWidth(frac)
+                .height(2.dp)
+                .background(PineAccent),
         )
     }
 }
@@ -473,35 +491,26 @@ private fun ResultRow(
 // ---------------------------------------------------------------- empty state
 
 @Composable
-private fun EmptyState() {
-    Column(
-        Modifier.fillMaxWidth().padding(top = 36.dp, bottom = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+private fun ErrorBanner(message: String) {
+    Surface(
+        color = PineError.copy(alpha = 0.14f),
+        contentColor = PineError,
+        shape = RoundedCornerShape(PineRadius.Md),
+        modifier = Modifier.padding(horizontal = PineGutter),
     ) {
-        Box(
-            Modifier
-                .size(76.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center,
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = PineSpace.Lg, vertical = PineSpace.Md),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            SearchGlyph(36.dp, MaterialTheme.colorScheme.primary, strokeWidth = 3.dp)
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = PineError,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
         }
-        Spacer(Modifier.height(18.dp))
-        Text(
-            "Search to start listening",
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "Type a song, artist or album. Tap a result and it plays — " +
-                "then a continuous mix builds up behind it.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 24.dp),
-        )
     }
 }
 
@@ -512,24 +521,28 @@ private fun EmptyState() {
 private fun CrashCard(trace: String, onDismiss: () -> Unit) {
     val lines = trace.lines().take(24).joinToString("\n")
     Surface(
-        color = MaterialTheme.colorScheme.errorContainer,
-        contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        shape = RoundedCornerShape(10.dp),
+        color = PineError.copy(alpha = 0.14f),
+        contentColor = PineError,
+        shape = RoundedCornerShape(PineRadius.Md),
     ) {
-        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(PineSpace.Lg)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "⚠ Last crash",
+                    "Last crash",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
+                    color = PineError,
                 )
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text("Dismiss") }
+                TextButton(onClick = onDismiss) {
+                    Text("Dismiss", color = PineError, fontWeight = FontWeight.SemiBold)
+                }
             }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(PineSpace.Xs))
             Text(
                 lines,
                 style = MaterialTheme.typography.labelSmall,
+                color = PineTextSecondary,
                 maxLines = 24,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -537,11 +550,18 @@ private fun CrashCard(trace: String, onDismiss: () -> Unit) {
     }
 }
 
-// ----------------------------------------------------------------- player bar
+// ----------------------------------------------------------------- mini player
 
 /**
- * SoundCloud's persistent mini-player: a full-width waveform you can tap to
- * scrub, then real album art, title, artist, and transport controls.
+ * The persistent mini-player.
+ *
+ * Slim by design: artwork, identity, a tappable progress waveform and one
+ * play/pause. Previous, next, shuffle, repeat and the queue all live in the
+ * full-screen player — putting them here as well is what made the old bar
+ * read as a control panel rather than as a now-playing strip.
+ *
+ * Tapping the row opens the full-screen player; the play/pause button stops
+ * propagation so it works without opening anything.
  */
 @Composable
 fun PlayerBar(vm: MainViewModel, onExpand: () -> Unit = {}) {
@@ -566,17 +586,22 @@ fun PlayerBar(vm: MainViewModel, onExpand: () -> Unit = {}) {
         0f
     }
 
-    Surface(color = MaterialTheme.colorScheme.background, shadowElevation = 12.dp) {
-        Column(Modifier.fillMaxWidth()) {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    Surface(color = PineSurface) {
+        Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars)) {
+            HorizontalDivider(color = PineSurfaceHigh)
 
+            // A slim waveform: progress at a glance, and tappable to scrub.
             Waveform(
                 seed = nowPlaying.ifEmpty { "pineapple-idle" },
                 progress = progress,
+                barWidth = 1.6.dp,
+                gap = 1.4.dp,
+                playedColor = PineAccent,
+                unplayedColor = PineSurfaceHigh,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(36.dp)
-                    .padding(horizontal = 14.dp, vertical = 7.dp)
+                    .height(15.dp)
+                    .padding(horizontal = PineSpace.Lg, vertical = 3.dp)
                     .pointerInput(durationMs) {
                         detectTapGestures { offset ->
                             val total = durationMs
@@ -591,42 +616,32 @@ fun PlayerBar(vm: MainViewModel, onExpand: () -> Unit = {}) {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 12.dp),
+                    .clickable(enabled = shownTitle.isNotEmpty(), onClick = onExpand)
+                    .padding(start = PineSpace.Lg, end = PineSpace.Md, bottom = PineSpace.Sm, top = PineSpace.Xs),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Thumbnail(shownArtwork, shownTitle.ifEmpty { "Pineapple" }, size = 46.dp, corner = 5.dp)
-                Spacer(Modifier.width(12.dp))
+                Thumbnail(shownArtwork, shownTitle.ifEmpty { "Pineapple" }, size = 44.dp, corner = PineRadius.Sm)
+                Spacer(Modifier.width(PineSpace.Md))
 
-                Column(
-                    Modifier
-                        .weight(1f)
-                        // Tapping the title opens the full-screen player, the
-                        // same affordance Spotify's mini-player gives you.
-                        // Disabled while idle so an empty bar invites no tap.
-                        .clickable(enabled = shownTitle.isNotEmpty(), onClick = onExpand),
-                ) {
+                Column(Modifier.weight(1f)) {
                     Text(
                         shownTitle.ifEmpty { "Nothing playing" },
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = PineTextPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(PineSpace.Xxs))
                     Text(
                         when {
                             starting -> "Starting…"
                             nowPlaying.isEmpty() -> "Search for a song to start"
                             else -> artist.ifEmpty {
-                                if (state.queueSize > 1) {
-                                    "${state.queueSize} tracks queued"
-                                } else {
-                                    "Streaming"
-                                }
+                                if (state.queueSize > 1) "${state.queueSize} tracks queued" else "Streaming"
                             }
                         },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = PineTextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -636,68 +651,30 @@ fun PlayerBar(vm: MainViewModel, onExpand: () -> Unit = {}) {
                     Text(
                         "${fmtMs(positionMs)} / ${fmtMs(durationMs)}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = PineTextSecondary,
+                        modifier = Modifier.padding(end = PineSpace.Sm),
                     )
                 }
 
-                Spacer(Modifier.width(10.dp))
-
-                TransportButton(
-                    enabled = state.queueSize > 1,
-                    background = MaterialTheme.colorScheme.secondaryContainer,
-                    glyph = { PreviousGlyph(16.dp, MaterialTheme.colorScheme.onSurface) },
-                    onClick = { vm.playerController.previous() },
-                )
-
-                Spacer(Modifier.width(8.dp))
-
-                Box(
-                    Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                        .clickable { vm.playerController.togglePlayPause() },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    when {
-                        starting -> CircularProgressIndicator(
-                            Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                            color = Color.White,
-                        )
-                        isPlaying -> PauseGlyph(20.dp, Color.White)
-                        else -> PlayGlyph(20.dp, Color.White)
-                    }
-                }
-
-                Spacer(Modifier.width(8.dp))
-
-                TransportButton(
-                    enabled = state.queueSize > 1,
-                    background = MaterialTheme.colorScheme.secondaryContainer,
-                    glyph = { NextGlyph(16.dp, MaterialTheme.colorScheme.onSurface) },
-                    onClick = { vm.next() },
+                PineIconButton(
+                    onClick = { vm.playerController.togglePlayPause() },
+                    background = PineAccent,
+                    targetSize = 44.dp,
+                    glyph = {
+                        when {
+                            starting -> CircularProgressIndicator(
+                                Modifier.size(19.dp),
+                                strokeWidth = 2.dp,
+                                color = PineOnAccent,
+                            )
+                            isPlaying -> PauseGlyph(19.dp, PineOnAccent)
+                            else -> PlayGlyph(19.dp, PineOnAccent)
+                        }
+                    },
                 )
             }
         }
     }
-}
-
-@Composable
-private fun TransportButton(
-    enabled: Boolean,
-    background: Color,
-    glyph: @Composable () -> Unit,
-    onClick: () -> Unit,
-) {
-    Box(
-        Modifier
-            .size(34.dp)
-            .clip(CircleShape)
-            .background(if (enabled) background else Color.Transparent)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) { glyph() }
 }
 
 // -------------------------------------------------------------------- helpers

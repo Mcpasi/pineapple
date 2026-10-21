@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import com.torrenttunes.app.library.LibraryStore
 import com.torrenttunes.app.player.PlayerController
 import com.torrenttunes.app.search.SearchResult
@@ -86,6 +87,23 @@ class MainViewModel @Inject constructor(
     private val _durationMs = MutableStateFlow(0L)
     val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
 
+    /**
+     * Playback flags, sampled from ExoPlayer rather than tracked locally.
+     *
+     * The player is the single source of truth: a shuffle button that reports
+     * its own idea of the state would drift from what the queue is actually
+     * doing the moment a track ended.
+     */
+    private val _shuffleEnabled = MutableStateFlow(false)
+    val shuffleEnabled: StateFlow<Boolean> = _shuffleEnabled.asStateFlow()
+
+    private val _repeatAll = MutableStateFlow(false)
+    val repeatAll: StateFlow<Boolean> = _repeatAll.asStateFlow()
+
+    /** Index of the playing item within the queue — the Up Next anchor. */
+    private val _currentIndex = MutableStateFlow(0)
+    val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
+
     /** Stack trace from a previous process, surfaced so it can be read off-screen. */
     private val _lastCrash = MutableStateFlow(CrashLogger.readPersisted(androidContext))
     val lastCrash: StateFlow<String?> = _lastCrash.asStateFlow()
@@ -137,6 +155,7 @@ class MainViewModel @Inject constructor(
     }
 
     private var searchJob: Job? = null
+    private var debounceJob: Job? = null
     private var playJob: Job? = null
     private var prefetchJob: Job? = null
 
@@ -184,6 +203,9 @@ class MainViewModel @Inject constructor(
                     // never divides by a negative length.
                     _durationMs.value = p.duration.coerceAtLeast(0L)
                     _state.update { it.copy(queueSize = p.mediaItemCount) }
+                    _shuffleEnabled.value = p.shuffleModeEnabled
+                    _repeatAll.value = p.repeatMode == Player.REPEAT_MODE_ALL
+                    _currentIndex.value = p.currentMediaItemIndex
                 } catch (t: Throwable) {
                     _isPlaying.value = false
                 }
@@ -196,15 +218,45 @@ class MainViewModel @Inject constructor(
 
     // ------------------------------------------------------------- search
 
-    fun onQueryChange(value: String) = _state.update { it.copy(query = value) }
+    /**
+     * Search-as-you-type.
+     *
+     * Debounced so a query does not fire a request per keystroke, and so the
+     * previous results stay on screen while the new ones load — clearing the
+     * list on every keystroke is what makes typed search feel broken.
+     */
+    fun onQueryChange(value: String) {
+        _state.update { it.copy(query = value) }
+        debounceJob?.cancel()
+        val trimmed = value.trim()
+        if (trimmed.length < MIN_QUERY_LENGTH) return
+        debounceJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(DEBOUNCE_MS)
+            launchSearch(trimmed, keepResults = true)
+        }
+    }
 
+    /** Explicit submit — the keyboard's search action. */
     fun search() {
+        debounceJob?.cancel()
         val query = _state.value.query.trim()
         if (query.isEmpty()) return
+        launchSearch(query, keepResults = false)
+    }
 
+    private fun launchSearch(query: String, keepResults: Boolean) {
         searchJob?.cancel()
         searchJob = viewModelScope.launch(Dispatchers.IO) {
-            _state.update { it.copy(searching = true, error = null, results = emptyList(), status = null) }
+            _state.update {
+                it.copy(
+                    searching = true,
+                    error = null,
+                    // Only dropped on an explicit submit; a debounced follow-up
+                    // keeps what the user is already reading.
+                    results = if (keepResults) it.results else emptyList(),
+                    status = null,
+                )
+            }
             val startedAt = System.currentTimeMillis()
             try {
                 val found = InnerTube.search(query)
@@ -393,5 +445,11 @@ class MainViewModel @Inject constructor(
          * hammering YouTube.
          */
         const val PREFETCH_COUNT = 5
+
+        /** Below this a query is not worth a round trip. */
+        const val MIN_QUERY_LENGTH = 2
+
+        /** Long enough to group keystrokes, short enough to feel immediate. */
+        const val DEBOUNCE_MS = 350L
     }
 }

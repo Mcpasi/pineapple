@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,53 +24,61 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.torrenttunes.app.library.LibraryViewModel
 import com.torrenttunes.app.search.SearchResult
+import com.torrenttunes.app.ui.components.ChevronDownGlyph
 import com.torrenttunes.app.ui.components.NextGlyph
 import com.torrenttunes.app.ui.components.PauseGlyph
+import com.torrenttunes.app.ui.components.PinGlyph
+import com.torrenttunes.app.ui.components.PineIconButton
 import com.torrenttunes.app.ui.components.PlayGlyph
 import com.torrenttunes.app.ui.components.PreviousGlyph
-import com.torrenttunes.app.ui.components.Thumbnail
-import com.torrenttunes.app.ui.components.heartPath
+import com.torrenttunes.app.ui.components.QueueGlyph
+import com.torrenttunes.app.ui.components.RepeatGlyph
+import com.torrenttunes.app.ui.components.ShuffleGlyph
+import com.torrenttunes.app.ui.components.ThumbnailFill
 import com.torrenttunes.app.ui.components.playerGroundColors
-import com.torrenttunes.app.ui.theme.ScOrange
-import com.torrenttunes.app.ui.theme.ScSurface
-import com.torrenttunes.app.ui.theme.ScText
-import com.torrenttunes.app.ui.theme.ScTextDim
-import java.util.Locale
+import com.torrenttunes.app.ui.theme.PineAccent
+import com.torrenttunes.app.ui.theme.PineDivider
+import com.torrenttunes.app.ui.theme.PineRadius
+import com.torrenttunes.app.ui.theme.PineSpace
+import com.torrenttunes.app.ui.theme.PineSurface
+import com.torrenttunes.app.ui.theme.PineTextPrimary
+import com.torrenttunes.app.ui.theme.PineTextSecondary
 
 /**
- * Full-screen now-playing, laid out the way Spotify's is: art first, then
- * identity, then the seek bar, then transport — with the like toggle reachable
- * by either thumb.
+ * The full-screen player — the visual centrepiece.
  *
- * The ground is a per-track gradient rather than a flat colour (see
- * [playerGroundColors]), which is most of what separates a modern player from
- * a form on a grey card.
- *
- * It reads straight off the same flows the mini-player uses, so both stay in
- * agreement without any second source of truth to keep in sync.
+ * A per-track gradient ground derived from the artwork's palette, so the
+ * screen visibly belongs to the song being played. Everything here is wired to
+ * real ExoPlayer state: the slider reads the actual position, shuffle and
+ * repeat read the player's own flags, and the queue lists the player's actual
+ * media items. Nothing is decorative.
  */
 @Composable
 fun NowPlayingScreen(
@@ -80,224 +89,224 @@ fun NowPlayingScreen(
 ) {
     val nowPlaying by vm.nowPlaying.collectAsState()
     val artist by vm.artist.collectAsState()
-    val artwork by vm.artworkUrl.collectAsState()
+    val artworkUrl by vm.artworkUrl.collectAsState()
     val isPlaying by vm.isPlaying.collectAsState()
     val positionMs by vm.positionMs.collectAsState()
     val durationMs by vm.durationMs.collectAsState()
-    val uiState by vm.state.collectAsState()
+    // ExoPlayer exposes no generic "buffering" flag through this ViewModel, and
+    // the mini-player already distinguishes "still fetching a stream" from
+    // "playing". A pending resolve is the state the user actually waits on, so
+    // that is what the play control reflects — labelled as starting, not as
+    // buffering, because that is what is true.
+    val pendingResolve = vm.state.collectAsState().value.loadingVideoId != null
+    val loading = pendingResolve && !isPlaying
+    val shuffleEnabled by vm.shuffleEnabled.collectAsState()
+    val repeatAll by vm.repeatAll.collectAsState()
+    val queue by vm.playerController.queue.collectAsState()
+    val currentIndex by vm.currentIndex.collectAsState()
+    val libraryState by library.state.collectAsState()
 
-    // The same key the artwork tile uses, so background and cover agree.
-    val seed = nowPlaying.ifEmpty { "Pineapple" }
-    val ground = remember(seed) { playerGroundColors(seed) }
+    val title = nowPlaying.ifEmpty { currentTrack?.title.orEmpty() }
+    val artistText = artist.ifEmpty { currentTrack?.channel.orEmpty() }
+    val seed = title.ifEmpty { "pineapple" }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(ground))
-            .statusBarsPadding()
-            .navigationBarsPadding(),
-    ) {
-        // ---------------------------------------------------------------- bar
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.08f))
-                    .clickable(onClick = onClose),
-                contentAlignment = Alignment.Center,
-            ) {
-                ChevronDown(Modifier.size(20.dp))
-            }
-            Spacer(Modifier.weight(1f))
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    "PLAYING FROM",
-                    fontSize = 9.sp,
-                    letterSpacing = 1.4.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White.copy(alpha = 0.55f),
-                )
-                Text(
-                    "Search results",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = ScText,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.weight(1f))
-            Box(Modifier.size(40.dp))
-        }
+    // Per-track ground. Crossfaded by Compose when [seed] changes, which is
+    // what makes switching songs feel like the room changed colour.
+    val ground = playerGroundColors(seed)
 
-        // ---------------------------------------------------------------- art
-        Spacer(Modifier.height(10.dp))
+    var showQueue by remember { mutableStateOf(false) }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Captured: `maxWidth`/`maxHeight` come from BoxWithConstraintsScope,
+        // which is shadowed once we enter a nested Column/Row scope — reading
+        // them deeper in fails to resolve.
+        val windowWidth = maxWidth
+        val windowHeight = maxHeight
+
+        // The ground: a three-stop vertical gradient ending in the app's
+        // near-black, so text always has something dark beneath it.
         Box(
             Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 26.dp)
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(16.dp)),
-        ) {
-            Thumbnail(
-                artwork,
-                seed,
-                size = 340.dp,
-                corner = 16.dp,
-            )
-            // A soft scrim along the bottom edge so the art sits *in* the
-            // background instead of floating on top of it.
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0.55f to Color.Transparent,
-                            1f to ground.last().copy(alpha = 0.55f),
-                        ),
-                    ),
-            )
-        }
-
-        // ------------------------------------------------------------ identity
-        Spacer(Modifier.height(26.dp))
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 26.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    nowPlaying.ifEmpty { "Nothing playing" },
-                    fontSize = 23.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.4).sp,
-                    color = ScText,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(5.dp))
-                Text(
-                    artist.ifEmpty { "Search for a song to start" },
-                    fontSize = 15.sp,
-                    color = ScTextDim,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.width(14.dp))
-            LikeToggle(
-                liked = currentTrack?.let { library.isLiked(it.videoId) } ?: false,
-                onToggle = { currentTrack?.let { library.toggleLike(it) } },
-            )
-        }
-
-        // ----------------------------------------------------------- seek bar
-        Spacer(Modifier.height(20.dp))
-        Column(Modifier.padding(horizontal = 26.dp)) {
-            val progress =
-                if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-            Slider(
-                value = progress,
-                onValueChange = { frac ->
-                    if (durationMs > 0) vm.seekTo((frac * durationMs).toLong())
-                },
-                colors = SliderDefaults.colors(
-                    thumbColor = ScOrange,
-                    activeTrackColor = ScOrange,
-                    inactiveTrackColor = Color.White.copy(alpha = 0.18f),
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(fmtMs(positionMs), fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f))
-                Text(fmtMs(durationMs), fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f))
-            }
-        }
-
-        // ------------------------------------------------------------ transport
-        Spacer(Modifier.height(14.dp))
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            Box(
-                Modifier
-                    .size(58.dp)
-                    .clip(CircleShape)
-                    .clickable { vm.previous() },
-                contentAlignment = Alignment.Center,
-            ) {
-                PreviousGlyph(30.dp, ScText)
-            }
-            Spacer(Modifier.width(28.dp))
-            Box(
-                Modifier
-                    .size(76.dp)
-                    .clip(CircleShape)
-                    .background(Brush.linearGradient(listOf(ScOrange, Color(0xFFE03F00))))
-                    .clickable { vm.togglePlayPause() },
-                contentAlignment = Alignment.Center,
-            ) {
-                if (isPlaying) PauseGlyph(31.dp, Color.White) else PlayGlyph(31.dp, Color.White)
-            }
-            Spacer(Modifier.width(28.dp))
-            Box(
-                Modifier
-                    .size(58.dp)
-                    .clip(CircleShape)
-                    .clickable { vm.next() },
-                contentAlignment = Alignment.Center,
-            ) {
-                NextGlyph(30.dp, ScText)
-            }
-        }
-
-        Spacer(Modifier.height(14.dp))
-        Text(
-            if (uiState.queueSize > 1) {
-                "${uiState.queueSize} tracks in this mix"
-            } else {
-                "Continuous mix builds as you listen"
-            },
-            fontSize = 12.sp,
-            color = Color.White.copy(alpha = 0.45f),
-            modifier = Modifier.align(Alignment.CenterHorizontally),
+                .fillMaxSize()
+                .background(Brush.verticalGradient(ground)),
         )
 
-        Spacer(Modifier.height(18.dp))
+        Column(
+            Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+        ) {
+            // ------------------------------------------------------- top row
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = PineSpace.Md, vertical = PineSpace.Sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PineIconButton(
+                    onClick = onClose,
+                    glyph = { ChevronDownGlyph(24.dp, PineTextPrimary) },
+                )
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "NOW PLAYING",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.1.sp,
+                        color = PineTextSecondary,
+                    )
+                }
+                PineIconButton(
+                    onClick = { showQueue = true },
+                    glyph = { QueueGlyph(23.dp, PineTextPrimary) },
+                )
+            }
+
+            // ------------------------------------------------------ artwork
+            //
+            // Capped by *height* as well as width. A square sized purely from
+            // the screen width is taller than a short window (landscape, a
+            // small phone, or large font settings), and would push the
+            // transport controls off the bottom — which is the one thing the
+            // player cannot lose.
+            val artWidth = windowWidth - PineSpace.Xxl * 2
+            // Top bar + title + slider + transport + queue hint + paddings.
+            val reserved = 300.dp
+            val artSize = minOf(artWidth, windowHeight - reserved).coerceAtLeast(140.dp)
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Box(Modifier.size(artSize)) {
+                    ThumbnailFill(
+                        url = artworkUrl,
+                        seed = seed,
+                        corner = PineRadius.Lg,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+
+            // -------------------------------------------------- title + like
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = PineSpace.Xxl),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        title.ifEmpty { "Nothing playing" },
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = PineTextPrimary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = 28.sp,
+                    )
+                    if (artistText.isNotEmpty()) {
+                        Spacer(Modifier.height(PineSpace.Xs))
+                        Text(
+                            artistText,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = PineTextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                if (currentTrack != null) {
+                    Spacer(Modifier.width(PineSpace.Md))
+                    LikeButton(
+                        liked = library.isLiked(currentTrack.videoId),
+                        onToggle = { library.toggleLike(currentTrack) },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(PineSpace.Lg))
+
+            // ------------------------------------------------------- slider
+            PlayerSlider(
+                positionMs = positionMs,
+                durationMs = durationMs,
+                onSeek = { ms -> vm.playerController.seekTo(ms) },
+            )
+
+            // ---------------------------------------------------- transport
+            TransportRow(
+                isPlaying = isPlaying,
+                loading = loading,
+                shuffleEnabled = shuffleEnabled,
+                repeatAll = repeatAll,
+                onShuffle = { vm.playerController.toggleShuffle() },
+                onPrevious = { vm.playerController.previous() },
+                onToggle = { vm.playerController.togglePlayPause() },
+                onNext = { vm.playerController.next() },
+                onRepeat = { vm.playerController.toggleRepeat() },
+            )
+
+            // ---------------------------------------------------- queue hint
+            if (queue.isNotEmpty()) {
+                Spacer(Modifier.height(PineSpace.Lg))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { showQueue = true }
+                        .padding(horizontal = PineSpace.Xxl, vertical = PineSpace.Sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (queue.size > 1) "Up next · ${queue.size - 1} more" else "Queue",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = PineTextSecondary,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    QueueGlyph(18.dp, PineTextSecondary)
+                }
+            }
+
+            Spacer(Modifier.weight(1f))
+        }
+    }
+
+    if (showQueue) {
+        QueueSheet(
+            queue = queue,
+            currentIndex = currentIndex,
+            onPick = { index ->
+                vm.playerController.seekToIndex(index)
+                showQueue = false
+            },
+            onDismiss = { showQueue = false },
+        )
     }
 }
 
-// ------------------------------------------------------------------ helpers
+// ---------------------------------------------------------------- like
 
 /**
- * The like toggle.
+ * The like control, sharing the Library's heart silhouette so "saved" looks
+ * identical wherever it appears.
  *
- * The heart fills and springs on tap rather than just recolouring: a change
- * you can feel is what makes the button read as *saved* rather than as a
- * colour that happened to switch.
+ * Filled accent when liked, outline otherwise — the fill is the state, so it
+ * is legible without relying on colour alone.
  */
 @Composable
-private fun LikeToggle(liked: Boolean, onToggle: () -> Unit) {
+private fun LikeButton(liked: Boolean, onToggle: () -> Unit) {
+    // A spring on the scale is what makes the tap feel like it did something
+    // rather than like a colour swapped.
     val scale by animateFloatAsState(
-        targetValue = if (liked) 1.12f else 1f,
+        targetValue = if (liked) 1.08f else 1f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "like",
+        label = "like-scale",
     )
     Box(
         Modifier
-            .size(46.dp)
+            .size(52.dp)
             .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.08f))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -305,35 +314,208 @@ private fun LikeToggle(liked: Boolean, onToggle: () -> Unit) {
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(23.dp).graphicsLayer { scaleX = scale; scaleY = scale }) {
-            val path = heartPath(this.size.width, this.size.height)
+        Canvas(Modifier.size(27.dp * scale)) {
+            val path = com.torrenttunes.app.ui.components.heartPath(size.width, size.height)
             if (liked) {
-                drawPath(path, ScOrange)
+                drawPath(path, PineAccent)
             } else {
-                // Outlined when not liked, so the control is legible before
-                // the first tap rather than after it.
-                drawPath(path, color = ScTextDim, style = androidx.compose.ui.graphics.drawscope.Stroke(width = size.width * 0.085f))
+                drawPath(
+                    path,
+                    color = PineTextSecondary,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = size.width * 0.08f),
+                )
             }
         }
     }
 }
 
+// --------------------------------------------------------------- slider
+
+/**
+ * Playback position.
+ *
+ * While dragging, the thumb follows the finger and the real position is held —
+ * without that, the slider snaps back under your thumb on every seek because
+ * the player's position has not caught up yet.
+ */
 @Composable
-private fun ChevronDown(modifier: Modifier) = Canvas(modifier) {
-    val s = size.minDimension
-    val stroke = s * 0.12f
-    drawLine(
-        ScText,
-        Offset(s * 0.24f, s * 0.38f),
-        Offset(s * 0.50f, s * 0.62f),
-        strokeWidth = stroke,
-        cap = StrokeCap.Round,
-    )
-    drawLine(
-        ScText,
-        Offset(s * 0.50f, s * 0.62f),
-        Offset(s * 0.76f, s * 0.38f),
-        strokeWidth = stroke,
-        cap = StrokeCap.Round,
-    )
+private fun PlayerSlider(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) {
+    var dragging by remember { mutableStateOf<Float?>(null) }
+    val fraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+    val shown = dragging ?: fraction
+
+    Column(Modifier.fillMaxWidth().padding(horizontal = PineSpace.Xxl)) {
+        Slider(
+            value = shown,
+            onValueChange = { dragging = it },
+            onValueChangeFinished = {
+                dragging?.let { onSeek((it * durationMs).toLong()) }
+                dragging = null
+            },
+            colors = SliderDefaults.colors(
+                thumbColor = PineAccent,
+                activeTrackColor = PineAccent,
+                inactiveTrackColor = Color.White.copy(alpha = 0.16f),
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(fmtMs(positionMs), style = MaterialTheme.typography.labelSmall, color = PineTextSecondary)
+            Text(
+                if (durationMs > 0) "-${fmtMs(durationMs - positionMs)}" else "0:00",
+                style = MaterialTheme.typography.labelSmall,
+                color = PineTextSecondary,
+            )
+        }
+    }
+}
+
+// ------------------------------------------------------------- transport
+
+/**
+ * Shuffle, previous, play/pause, next, repeat.
+ *
+ * Play/pause is deliberately much larger than the rest — it is the one control
+ * a user reaches for without looking. Shuffle and repeat read ExoPlayer's own
+ * flags, so their lit state cannot drift from what the queue is actually doing.
+ */
+@Composable
+private fun TransportRow(
+    isPlaying: Boolean,
+    loading: Boolean,
+    shuffleEnabled: Boolean,
+    repeatAll: Boolean,
+    onShuffle: () -> Unit,
+    onPrevious: () -> Unit,
+    onToggle: () -> Unit,
+    onNext: () -> Unit,
+    onRepeat: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = PineSpace.Lg, vertical = PineSpace.Md),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PineIconButton(
+            onClick = onShuffle,
+            glyph = { ShuffleGlyph(23.dp, if (shuffleEnabled) PineAccent else PineTextSecondary) },
+        )
+        PineIconButton(onClick = onPrevious, glyph = { PreviousGlyph(30.dp, PineTextPrimary) })
+
+        // The dominant control: a filled accent circle.
+        Box(
+            Modifier
+                .size(68.dp)
+                .clip(CircleShape)
+                .background(PineAccent)
+                .clickable(onClick = onToggle),
+            contentAlignment = Alignment.Center,
+        ) {
+            when {
+                loading -> androidx.compose.material3.CircularProgressIndicator(
+                    Modifier.size(26.dp),
+                    strokeWidth = 2.6.dp,
+                    color = Color(0xFF140A00),
+                )
+                isPlaying -> PauseGlyph(28.dp, Color(0xFF140A00))
+                else -> PlayGlyph(28.dp, Color(0xFF140A00))
+            }
+        }
+
+        PineIconButton(onClick = onNext, glyph = { NextGlyph(30.dp, PineTextPrimary) })
+        PineIconButton(
+            onClick = onRepeat,
+            glyph = { RepeatGlyph(23.dp, if (repeatAll) PineAccent else PineTextSecondary, once = false) },
+        )
+    }
+}
+
+// ---------------------------------------------------------------- queue
+
+/**
+ * The real queue.
+ *
+ * Driven by the player's own media items, so it cannot claim a track is
+ * queued when it is not. Tapping an entry jumps to it.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun QueueSheet(
+    queue: List<androidx.media3.common.MediaItem>,
+    currentIndex: Int,
+    onPick: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = PineSurface,
+        dragHandle = {
+            Box(
+                Modifier
+                    .padding(vertical = PineSpace.Md)
+                    .size(width = 36.dp, height = 4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(PineDivider),
+            )
+        },
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(bottom = PineSpace.Lg),
+        ) {
+            Text(
+                "Up next",
+                style = MaterialTheme.typography.titleLarge,
+                color = PineTextPrimary,
+                modifier = Modifier.padding(horizontal = PineSpace.Xl, vertical = PineSpace.Md),
+            )
+            HorizontalDivider(color = PineDivider)
+            queue.forEachIndexed { index, item ->
+                val meta = item.mediaMetadata
+                val title = meta.title?.toString().orEmpty()
+                val sub = meta.artist?.toString().orEmpty()
+                val art = meta.artworkUri?.toString().orEmpty()
+                val isCurrent = index == currentIndex
+
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onPick(index) }
+                        .padding(horizontal = PineSpace.Xl, vertical = PineSpace.Md),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    com.torrenttunes.app.ui.components.Thumbnail(
+                        art, title, size = 44.dp, corner = PineRadius.Sm,
+                    )
+                    Spacer(Modifier.width(PineSpace.Md))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            title.ifEmpty { "Unknown" },
+                            style = MaterialTheme.typography.titleSmall,
+                            color = if (isCurrent) PineAccent else PineTextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (sub.isNotEmpty()) {
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                sub,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = PineTextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    if (isCurrent) {
+                        PinGlyph(16.dp, PineAccent)
+                    }
+                }
+            }
+        }
+    }
 }

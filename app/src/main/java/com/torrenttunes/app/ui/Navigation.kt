@@ -1,13 +1,22 @@
 package com.torrenttunes.app.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -15,12 +24,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.torrenttunes.app.ui.theme.ScCard
-import com.torrenttunes.app.ui.theme.ScOrange
-import com.torrenttunes.app.ui.theme.ScTextDim
+import com.torrenttunes.app.ui.theme.PineAccent
+import com.torrenttunes.app.ui.theme.PineSurface
+import com.torrenttunes.app.ui.theme.PineTextSecondary
 
 /** The three places this app lives: browse, search, and what you kept. */
 enum class AppTab(val label: String) {
@@ -30,40 +41,60 @@ enum class AppTab(val label: String) {
 }
 
 /**
- * Bottom navigation, sitting directly under the mini-player so the two read
- * as one pinned unit, the way Spotify stacks them.
+ * Bottom navigation, sitting directly under the mini-player so the two read as
+ * one pinned unit.
  *
- * No pill behind the selected icon: the tint alone is what Spotify and Apple
- * Music both rely on, and a dark ground makes it obvious enough.
+ * The selected tab gets a small accent pill behind its icon as well as the
+ * tint. Tint alone is what Spotify and Apple Music rely on, but on a dark
+ * ground the pill is the difference between "obviously selected" and "squint
+ * at it" — and it gives the switch something to animate, so a tap reads as
+ * the app moving rather than as a colour swapping.
  */
 @Composable
 fun AppNavBar(current: AppTab, onSelect: (AppTab) -> Unit) {
     NavigationBar(
-        containerColor = ScCard,
+        containerColor = PineSurface,
         tonalElevation = 0.dp,
     ) {
         AppTab.entries.forEach { tab ->
             val selected = tab == current
+            val tint by animateColorAsState(
+                targetValue = if (selected) PineAccent else PineTextSecondary,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy),
+                label = "tab-tint",
+            )
             NavigationBarItem(
                 selected = selected,
                 onClick = { onSelect(tab) },
                 icon = {
-                    TabGlyph(tab, if (selected) ScOrange else ScTextDim, Modifier.size(24.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(width = 56.dp, height = 30.dp)
+                            .clip(RoundedCornerShape(15.dp))
+                            .background(if (selected) PineAccent.copy(alpha = 0.14f) else Color.Transparent),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        TabGlyph(tab, tint, Modifier.size(24.dp))
+                    }
                 },
                 label = {
                     Text(
                         tab.label,
                         fontSize = 11.sp,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        color = tint,
                     )
                 },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = ScOrange,
-                    selectedTextColor = ScOrange,
-                    unselectedIconColor = ScTextDim,
-                    unselectedTextColor = ScTextDim,
+                    selectedIconColor = PineAccent,
+                    selectedTextColor = PineAccent,
+                    unselectedIconColor = PineTextSecondary,
+                    unselectedTextColor = PineTextSecondary,
                     indicatorColor = Color.Transparent,
                 ),
+                modifier = Modifier.semantics {
+                    contentDescription = tab.label
+                },
             )
         }
     }
@@ -125,7 +156,7 @@ private fun TabGlyph(tab: AppTab, color: Color, modifier: Modifier) = Canvas(mod
 
         AppTab.LIBRARY -> {
             // Apple Music's library glyph: two upright records with one leaning
-            // between them. Three horizontal bars read as a hamburger menu.
+            // between them. Three horizontal bars would read as a hamburger menu.
             val h = size.height
             val w = size.width
             val bar = h * 0.15f

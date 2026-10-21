@@ -22,12 +22,13 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,488 +38,546 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.torrenttunes.app.library.LibraryState
 import com.torrenttunes.app.library.LibraryViewModel
 import com.torrenttunes.app.library.Playlist
 import com.torrenttunes.app.search.SearchResult
+import com.torrenttunes.app.ui.components.CloseGlyph
+import com.torrenttunes.app.ui.components.MoreGlyph
+import com.torrenttunes.app.ui.components.PineWindowWidth
+import com.torrenttunes.app.ui.components.PlusGlyph
+import com.torrenttunes.app.ui.components.SectionHeader
+import com.torrenttunes.app.ui.components.StateMessage
 import com.torrenttunes.app.ui.components.Thumbnail
+import com.torrenttunes.app.ui.components.TrackActionsSheet
+import com.torrenttunes.app.ui.components.TrackRow
+import com.torrenttunes.app.ui.components.TrackRowSkeleton
 import com.torrenttunes.app.ui.components.heartPath
-import com.torrenttunes.app.ui.theme.ScCard
-import com.torrenttunes.app.ui.theme.ScSurface
-import com.torrenttunes.app.ui.theme.ScText
-import com.torrenttunes.app.ui.theme.ScOrange
-import com.torrenttunes.app.ui.theme.ScTextDim
+import com.torrenttunes.app.ui.components.pineWindowWidth
+import com.torrenttunes.app.ui.theme.PineAccent
+import com.torrenttunes.app.ui.theme.PineDivider
+import com.torrenttunes.app.ui.theme.PineGutter
+import com.torrenttunes.app.ui.theme.PineRadius
+import com.torrenttunes.app.ui.theme.PineSpace
+import com.torrenttunes.app.ui.theme.PineSurface
+import com.torrenttunes.app.ui.theme.PineSurfaceHigh
+import com.torrenttunes.app.ui.theme.PineTextPrimary
+import com.torrenttunes.app.ui.theme.PineTextSecondary
 
 /**
- * What the user kept.
+ * Everything the user chose to keep: liked songs, what they played, and the
+ * playlists they made.
  *
- * Read top to bottom as a story: what they just played, what they pinned, then
- * the collections they built deliberately. Nothing here is downloaded to disk
- * by the app — a playlist is a list of references, not a folder of files.
+ * The screen is one scrolling list of sections rather than a set of cards
+ * inside cards. A playlist opens a detail panel in place, so the back button
+ * returns to the Library instead of leaving it — the same page stack the tabs
+ * already use.
  */
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     library: LibraryViewModel,
     onPlay: (SearchResult) -> Unit,
     onAddToQueue: (SearchResult) -> Unit,
-    modifier: Modifier = Modifier,
+    onOpenPlayer: () -> Unit,
 ) {
     val state by library.state.collectAsState()
 
-    /** Track whose long-press menu is open, or null. */
-    var sheetTrack by remember { mutableStateOf<SearchResult?>(null) }
-    /** Playlist being edited through the sheet, when the sheet was opened from one. */
-    var sourcePlaylistId by remember { mutableStateOf<String?>(null) }
+    // Which track's sheet is open, and from which playlist (null = from the
+    // Library directly, so "Remove from this playlist" is not offered).
+    var sheetTrack by remember { mutableStateOf<SheetRequest?>(null) }
+    var openPlaylist by remember { mutableStateOf<Playlist?>(null) }
+    var showCreate by remember { mutableStateOf(false) }
+
+    // Back returns from a playlist to the Library rather than to the last tab.
+    androidx.activity.compose.BackHandler(enabled = openPlaylist != null) {
+        openPlaylist = null
+    }
+
+    openPlaylist?.let { playlist ->
+        PlaylistDetail(
+            playlist = playlist,
+            library = library,
+            onPlay = { track ->
+                onPlay(track)
+                onOpenPlayer()
+            },
+            onBack = { openPlaylist = null },
+            onTrackLongClick = { track -> sheetTrack = SheetRequest(track, playlist.id) },
+        )
+        return
+    }
 
     LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 6.dp, bottom = 16.dp),
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = PineSpace.Xxl),
     ) {
-        item(key = "head") {
-            Text(
-                "Your Library",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = ScText,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-        }
+        item(key = "head") { LibraryHeader() }
 
-        // ------------------------------------------------------------ recent
-        if (state.recent.isNotEmpty()) {
-            item(key = "recent-head") { SectionHeader("Recently played") { } }
-            item(key = "recent-row") {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    items(state.recent, key = { "r_${it.dedupeKey}" }) { t ->
-                        Column(
-                            Modifier
-                                .width(96.dp)
-                                .combinedClickable(
-                                    onClick = { onPlay(t) },
-                                    onLongClick = {
-                                        sourcePlaylistId = null
-                                        sheetTrack = t
-                                    },
-                                ),
-                        ) {
-                            Thumbnail(t.thumbUrl, t.title, size = 96.dp, corner = 6.dp)
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                t.title,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                color = ScText,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // ----------------------------------------------------------- pinned
-        item(key = "pinned-head") { SectionHeader("Pinned") { } }
-        item(key = "pinned-liked") {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-                    .clickable {
-                        state.liked.firstOrNull()?.let(onPlay)
-                    },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                LikedTile(size = 72.dp)
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "Liked Songs",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = ScText,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        if (state.liked.isEmpty()) "Tap a heart to save songs"
-                        else "${state.liked.size} song${if (state.liked.size == 1) "" else "s"}",
-                        fontSize = 13.sp,
-                        color = ScTextDim,
-                    )
-                }
-                PinGlyph(Modifier.size(18.dp))
-            }
-
-            if (state.liked.isNotEmpty()) {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier.padding(top = 8.dp),
-                ) {
-                    items(state.liked, key = { "l_${it.dedupeKey}" }) { t ->
-                        Column(
-                            Modifier
-                                .width(96.dp)
-                                .combinedClickable(
-                                    onClick = { onPlay(t) },
-                                    onLongClick = {
-                                        sourcePlaylistId = null
-                                        sheetTrack = t
-                                    },
-                                ),
-                        ) {
-                            Thumbnail(t.thumbUrl, t.title, size = 96.dp, corner = 6.dp)
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                t.title,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                color = ScText,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // -------------------------------------------------------- playlists
-        item(key = "pl-head") { SectionHeader("Playlists") { } }
-
-        if (state.playlists.isEmpty()) {
-            item(key = "pl-empty") {
-                Text(
-                    "No playlists yet — long-press any song to create one.",
-                    fontSize = 13.sp,
-                    color = ScTextDim,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        // ------------------------------------------------------------- pinned
+        if (state.liked.isEmpty()) {
+            item(key = "liked-empty") { EmptyLiked() }
+        } else {
+            item(key = "liked-head") { SectionHeader("Liked songs") }
+            item(key = "liked-row") { LikedTile(state.liked.size, onClick = {
+                openPlaylist = Playlist("liked", "Liked songs", state.liked)
+            }) }
+            items(state.liked.take(3), key = { "liked-${it.videoId}" }) { track ->
+                TrackRow(
+                    track = track,
+                    onClick = { onPlay(track); onOpenPlayer() },
+                    onLongClick = { sheetTrack = SheetRequest(track, null) },
+                    onOverflow = { sheetTrack = SheetRequest(track, null) },
                 )
             }
+        }
+
+        // ------------------------------------------------------------ recents
+        if (state.recent.isNotEmpty()) {
+            item(key = "recent-head") { SectionHeader("Recently played") }
+            items(state.recent.take(5), key = { "recent-${it.videoId}" }) { track ->
+                TrackRow(
+                    track = track,
+                    onClick = { onPlay(track); onOpenPlayer() },
+                    onLongClick = { sheetTrack = SheetRequest(track, null) },
+                    onOverflow = { sheetTrack = SheetRequest(track, null) },
+                )
+            }
+        }
+
+        // ---------------------------------------------------------- playlists
+        item(key = "pl-head") {
+            SectionHeader("Your playlists") {
+                NewPlaylistButton { showCreate = true }
+            }
+        }
+        if (state.playlists.isEmpty()) {
+            item(key = "pl-empty") { EmptyPlaylists() }
         } else {
-            items(state.playlists, key = { it.id }) { pl ->
+            items(state.playlists, key = { "pl-${it.id}" }) { pl ->
                 PlaylistRow(
                     playlist = pl,
-                    onClick = { pl.tracks.firstOrNull()?.let(onPlay) },
-                    onLongClick = {
-                        pl.tracks.firstOrNull()?.let {
-                            sourcePlaylistId = pl.id
-                            sheetTrack = it
-                        }
+                    onClick = { openPlaylist = pl },
+                    onOverflow = {
+                        // An empty playlist has no track to act on, so the
+                        // overflow does nothing rather than opening a sheet
+                        // for a track that does not exist.
+                        pl.tracks.firstOrNull()?.let { sheetTrack = SheetRequest(it, pl.id) }
                     },
                 )
             }
         }
-
-        item(key = "bottom") { Spacer(Modifier.height(24.dp)) }
     }
 
-    sheetTrack?.let { track ->
+    sheetTrack?.let { req ->
         TrackActionsSheet(
-            track = track,
+            track = req.track,
             library = state,
-            sourcePlaylistId = sourcePlaylistId,
             libraryVm = library,
-            onPlay = { onPlay(track) },
-            onAddToQueue = { onAddToQueue(track) },
+            onPlay = { onPlay(req.track); onOpenPlayer() },
+            onAddToQueue = { onAddToQueue(req.track) },
             onDismiss = { sheetTrack = null },
+            sourcePlaylistId = req.sourceId,
+        )
+    }
+
+    if (showCreate) {
+        CreatePlaylistDialog(
+            onCreate = { name ->
+                library.createPlaylist(name)
+                showCreate = false
+            },
+            onDismiss = { showCreate = false },
         )
     }
 }
 
-// ------------------------------------------------------------------ pieces
+/**
+ * A pending actions-sheet request.
+ *
+ * Held as a named type rather than a `Pair` so `null` is unambiguous: Kotlin
+ * infers `Pair<SearchResult, Nothing?>` from `track to null`, which then fails
+ * to match a `Pair<SearchResult, String?>?` parameter.
+ */
+private data class SheetRequest(val track: SearchResult, val sourceId: String?)
+
+// ---------------------------------------------------------------- header
 
 @Composable
-private fun SectionHeader(title: String, trailing: () -> Unit) {
-    Row(
+private fun LibraryHeader() {
+    Column(
         Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(start = PineGutter, end = PineGutter, top = PineSpace.Lg, bottom = PineSpace.Xs),
     ) {
         Text(
-            title,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Bold,
-            color = ScText,
-            letterSpacing = 0.2.sp,
+            "Your Library",
+            style = MaterialTheme.typography.headlineMedium,
+            color = PineTextPrimary,
         )
-        Spacer(Modifier.weight(1f))
-        trailing()
     }
 }
 
-/** The pinned "Liked Songs" tile: gradient with a heart, Spotify-style. */
+// ------------------------------------------------------------- liked tile
+
+/**
+ * The Liked Songs tile.
+ *
+ * A gradient with a drawn heart rather than a fetched image — it is a
+ * collection the user made, not an album, so synthesised art is the honest
+ * answer and it always matches the app's accent.
+ */
 @Composable
-private fun LikedTile(size: androidx.compose.ui.unit.Dp) {
-    Box(
+private fun LikedTile(count: Int, onClick: () -> Unit) {
+    Column(
         Modifier
-            .size(size)
-            .clip(RoundedCornerShape(7.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(ScOrange, Color(0xFFFF8A3D)),
-                ),
-            ),
-        contentAlignment = Alignment.Center,
+            .padding(horizontal = PineGutter)
+            .clip(RoundedCornerShape(PineRadius.Md))
+            .clickable(onClick = onClick)
+            .padding(vertical = PineSpace.Sm),
     ) {
-        Canvas(Modifier.size(size * 0.44f)) {
-            // The same heart the player's like toggle draws — one shape, so
-            // "liked" looks identical wherever it appears.
-            drawPath(heartPath(this.size.width, this.size.height), Color.White)
+        Box(
+            Modifier
+                .size(112.dp)
+                .clip(RoundedCornerShape(PineRadius.Md))
+                .background(Brush.linearGradient(listOf(PineAccent, Color(0xFFB04A00)))),
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(Modifier.size(48.dp)) {
+                drawPath(heartPath(size.width, size.height), Color.White)
+            }
         }
+        Spacer(Modifier.height(PineSpace.Sm))
+        Text(
+            "Liked songs",
+            style = MaterialTheme.typography.titleSmall,
+            color = PineTextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(PineSpace.Xxs))
+        Text(
+            "$count song${if (count == 1) "" else "s"}",
+            style = MaterialTheme.typography.labelMedium,
+            color = PineTextSecondary,
+        )
     }
 }
 
-@Composable
-private fun PinGlyph(modifier: Modifier) = Canvas(modifier) {
-    val s = size.minDimension
-    val stroke = s * 0.14f
-    // Simple pin: head + stem.
-    drawCircle(ScTextDim, radius = s * 0.20f, center = androidx.compose.ui.geometry.Offset(s * 0.5f, s * 0.28f))
-    drawLine(
-        ScTextDim,
-        start = androidx.compose.ui.geometry.Offset(s * 0.5f, s * 0.46f),
-        end = androidx.compose.ui.geometry.Offset(s * 0.5f, s * 0.90f),
-        strokeWidth = stroke,
-        cap = androidx.compose.ui.graphics.StrokeCap.Round,
-    )
-}
+// ---------------------------------------------------------- playlist row
 
+/** A playlist row: generated gradient art, name, and real track count. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PlaylistRow(playlist: Playlist, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun PlaylistRow(playlist: Playlist, onClick: () -> Unit, onOverflow: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .combinedClickable(onClick = onClick, onLongClick = onOverflow)
+            .padding(horizontal = PineGutter, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // No artwork of its own — a deterministic gradient keyed to the name.
-        val hue = (playlist.name.hashCode() % 360 + 360) % 360
-        Box(
-            Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            Color.hsv(hue.toFloat(), 0.55f, 0.95f),
-                            Color.hsv((hue + 40f) % 360f, 0.65f, 0.85f),
-                        ),
-                    ),
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                playlist.name.take(1).uppercase(),
-                color = Color.White,
-                fontWeight = FontWeight.Black,
-                fontSize = 20.sp,
-            )
-        }
-        Spacer(Modifier.width(14.dp))
+        PlaylistArtwork(playlist, size = 56.dp)
+        Spacer(Modifier.width(PineSpace.Md))
         Column(Modifier.weight(1f)) {
             Text(
                 playlist.name,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = ScText,
+                style = MaterialTheme.typography.titleMedium,
+                color = PineTextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(PineSpace.Xxs))
             Text(
                 "Playlist · ${playlist.tracks.size} song${if (playlist.tracks.size == 1) "" else "s"}",
-                fontSize = 13.sp,
-                color = ScTextDim,
+                style = MaterialTheme.typography.labelMedium,
+                color = PineTextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onOverflow),
+            contentAlignment = Alignment.Center,
+        ) { MoreGlyph(20.dp, PineTextSecondary) }
+    }
+    RowDivider()
+}
+
+/**
+ * Generated playlist art — a gradient from the name, with the first letter
+ * centred. Fallback rather than a fetched image: a playlist has no cover.
+ */
+@Composable
+private fun PlaylistArtwork(playlist: Playlist, size: Dp) {
+    val palette = remember(playlist.name) {
+        val paletteIndex = (playlist.name.hashCode() and Int.MAX_VALUE) % 10
+        ArtworkGradients[paletteIndex]
+    }
+    Box(
+        Modifier
+            .size(size)
+            .clip(RoundedCornerShape(PineRadius.Sm))
+            .background(Brush.linearGradient(palette)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            playlist.name.firstOrNull()?.uppercaseChar()?.toString() ?: "#",
+            color = Color.White,
+            fontWeight = FontWeight.Black,
+            fontSize = (size.value * 0.36f).sp,
+        )
     }
 }
 
-// -------------------------------------------------------------------- sheet
+private val ArtworkGradients = listOf(
+    listOf(Color(0xFFFF9E2C), Color(0xFFF04E00)),
+    listOf(Color(0xFF7B5CFF), Color(0xFF3D2BFF)),
+    listOf(Color(0xFF00C2A8), Color(0xFF0077B6)),
+    listOf(Color(0xFFFF5F6D), Color(0xFFFFC371)),
+    listOf(Color(0xFF9B5CFF), Color(0xFF4A00E0)),
+    listOf(Color(0xFF18A97B), Color(0xFF38EF7D)),
+    listOf(Color(0xFFFC466B), Color(0xFF3F5EFB)),
+    listOf(Color(0xFFED213A), Color(0xFF93291E)),
+    listOf(Color(0xFF22C1E0), Color(0xFF1B6CA8)),
+    listOf(Color(0xFFF7971E), Color(0xFFFFD200)),
+)
+
+// --------------------------------------------------------- playlist detail
 
 /**
- * The long-press menu. Explicitly additive: every action here only mutates the
- * library's lists — nothing gets written to disk as a media file.
+ * An opened playlist.
+ *
+ * A playlist you cannot look inside is not much of a playlist, so this view
+ * lists the real tracks and lets each one be played, queued or filed — all
+ * driven by existing state, with nothing fabricated.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TrackActionsSheet(
-    track: SearchResult,
-    library: LibraryState,
-    sourcePlaylistId: String?,
-    libraryVm: LibraryViewModel,
-    onPlay: () -> Unit,
-    onAddToQueue: () -> Unit,
-    onDismiss: () -> Unit,
+private fun PlaylistDetail(
+    playlist: Playlist,
+    library: LibraryViewModel,
+    onPlay: (SearchResult) -> Unit,
+    onBack: () -> Unit,
+    onTrackLongClick: (SearchResult) -> Unit,
 ) {
-    val liked = libraryVm.isLiked(track.videoId)
-    var showNewPlaylist by remember { mutableStateOf(false) }
-    var newName by remember { mutableStateOf("") }
-    var showPlaylistPicker by remember { mutableStateOf(false) }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        // Not white: the sheet's text is ScText, which is near-white on the
-        // dark ground and would vanish against a white sheet.
-        containerColor = ScCard,
-    ) {
-        Column(Modifier.padding(bottom = 24.dp)) {
-            Row(
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = PineSpace.Md, vertical = PineSpace.Sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
                 Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onBack),
+                contentAlignment = Alignment.Center,
             ) {
-                Thumbnail(track.thumbUrl, track.title, size = 46.dp, corner = 5.dp)
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        track.title,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = ScText,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                // Back chevron, mirrored from the player's dismiss glyph.
+                Canvas(Modifier.size(22.dp)) {
+                    val s = size.minDimension
+                    drawLine(
+                        PineTextPrimary,
+                        Offset(s * 0.62f, s * 0.26f),
+                        Offset(s * 0.38f, s * 0.5f),
+                        strokeWidth = s * 0.1f,
+                        cap = androidx.compose.ui.graphics.StrokeCap.Round,
                     )
-                    Text(
-                        track.channel,
-                        fontSize = 13.sp,
-                        color = ScTextDim,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-
-            HorizontalDivider(color = ScSurface)
-
-            SheetAction(if (liked) "Remove from Liked" else "Add to Liked") {
-                libraryVm.toggleLike(track)
-                onDismiss()
-            }
-            SheetAction("Add to queue") {
-                onAddToQueue()
-                onDismiss()
-            }
-            SheetAction("Play next") {
-                onPlay()
-                onDismiss()
-            }
-
-            if (sourcePlaylistId != null) {
-                SheetAction("Remove from this playlist") {
-                    libraryVm.removeFromPlaylist(sourcePlaylistId, track.videoId)
-                    onDismiss()
-                }
-            }
-
-            HorizontalDivider(color = ScSurface)
-
-            if (!showPlaylistPicker && !showNewPlaylist) {
-                SheetAction("Add to playlist") { showPlaylistPicker = true }
-                SheetAction("Create new playlist") { showNewPlaylist = true }
-            }
-
-            if (showPlaylistPicker) {
-                Text(
-                    "Add to playlist",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = ScTextDim,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                )
-                if (library.playlists.isEmpty()) {
-                    Text(
-                        "No playlists yet.",
-                        fontSize = 13.sp,
-                        color = ScTextDim,
-                        modifier = Modifier.padding(horizontal = 20.dp),
+                    drawLine(
+                        PineTextPrimary,
+                        Offset(s * 0.38f, s * 0.5f),
+                        Offset(s * 0.62f, s * 0.74f),
+                        strokeWidth = s * 0.1f,
+                        cap = androidx.compose.ui.graphics.StrokeCap.Round,
                     )
                 }
-                library.playlists.forEach { pl ->
-                    SheetAction("${pl.name}  ·  ${pl.tracks.size}") {
-                        libraryVm.addToPlaylist(pl.id, track)
-                        onDismiss()
-                    }
-                }
-                SheetAction("New playlist…") {
-                    showPlaylistPicker = false
-                    showNewPlaylist = true
-                }
             }
+            Spacer(Modifier.width(PineSpace.Sm))
+            Text(
+                playlist.name,
+                style = MaterialTheme.typography.titleMedium,
+                color = PineTextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
 
-            if (showNewPlaylist) {
-                Text(
-                    "New playlist",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = ScTextDim,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                )
-                OutlinedTextField(
-                    value = newName,
-                    onValueChange = { newName = it },
-                    placeholder = { Text("Playlist name") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
-                )
-                Spacer(Modifier.height(12.dp))
-                val canSave = newName.isNotBlank()
-                Box(
+        if (playlist.tracks.isEmpty()) {
+            StateMessage(
+                title = "This playlist is empty",
+                body = "Long-press any song in Search or your Library and choose " +
+                    "\"Add to playlist\".",
+                glyph = { size, color -> PlusGlyph(size, color) },
+            )
+            return
+        }
+
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = PineSpace.Xxl),
+        ) {
+            item(key = "art") {
+                Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp)
-                        .height(46.dp)
-                        .clip(RoundedCornerShape(23.dp))
-                        .background(if (canSave) ScOrange else ScSurface)
-                        .clickable(enabled = canSave) {
-                            libraryVm.createPlaylist(newName)?.let { id ->
-                                libraryVm.addToPlaylist(id, track)
-                            }
-                            onDismiss()
-                        },
-                    contentAlignment = Alignment.Center,
+                        .padding(PineGutter),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        "Create and add",
-                        color = if (canSave) Color.White else ScTextDim,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
-                    )
+                    PlaylistArtwork(playlist, size = 96.dp)
+                    Spacer(Modifier.width(PineSpace.Lg))
+                    Column {
+                        Text(
+                            playlist.name,
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = PineTextPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(PineSpace.Xs))
+                        Text(
+                            "${playlist.tracks.size} song${if (playlist.tracks.size == 1) "" else "s"}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = PineTextSecondary,
+                        )
+                    }
                 }
+            }
+            items(playlist.tracks, key = { "pd-${playlist.id}-${it.videoId}" }) { track ->
+                TrackRow(
+                    track = track,
+                    onClick = { onPlay(track) },
+                    onLongClick = { onTrackLongClick(track) },
+                    onOverflow = { onTrackLongClick(track) },
+                )
             }
         }
     }
 }
 
+// -------------------------------------------------------------- buttons
+
 @Composable
-private fun SheetAction(label: String, onClick: () -> Unit) {
-    Text(
-        label,
-        fontSize = 15.sp,
-        fontWeight = FontWeight.Medium,
-        color = ScText,
-        modifier = Modifier
+private fun NewPlaylistButton(onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { PlusGlyph(20.dp, PineAccent) }
+}
+
+/**
+ * Names a new playlist.
+ *
+ * A dialog rather than a sheet: the user is naming one thing, not picking
+ * from a list, and a single focused field with a keyboard is the shortest
+ * path to a name. An empty name cannot be submitted — `createPlaylist`
+ * refuses it, and enabling the button anyway would just look broken.
+ */
+@Composable
+private fun CreatePlaylistDialog(onCreate: (String) -> Unit, onDismiss: () -> Unit) {
+    // Empty rather than "New playlist": pre-filling forces a select-all before
+    // the user can type a single character of their own.
+    var name by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = PineSurface,
+        title = { Text("New playlist", color = PineTextPrimary, style = MaterialTheme.typography.titleLarge) },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                placeholder = { Text("Playlist name", color = PineTextSecondary) },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = PineTextPrimary,
+                    unfocusedTextColor = PineTextPrimary,
+                    focusedBorderColor = PineAccent,
+                    unfocusedBorderColor = PineDivider,
+                    cursorColor = PineAccent,
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                ),
+            )
+        },
+        confirmButton = {
+            TextButton(
+                enabled = name.isNotBlank(),
+                onClick = { onCreate(name.trim()) },
+            ) {
+                Text("Create", color = if (name.isNotBlank()) PineAccent else PineTextSecondary)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel", color = PineTextSecondary) }
+        },
+    )
+}
+
+// ---------------------------------------------------------- empty states
+
+@Composable
+private fun EmptyLiked() {
+    Column(
+        Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 15.dp),
+            .padding(horizontal = PineGutter, vertical = PineSpace.Lg),
+    ) {
+        Text("No liked songs yet", style = MaterialTheme.typography.titleMedium, color = PineTextPrimary)
+        Spacer(Modifier.height(PineSpace.Xs))
+        Text(
+            "Tap the heart on the full-screen player, or long-press a song and " +
+                "choose \"Add to Liked\".",
+            style = MaterialTheme.typography.bodyMedium,
+            color = PineTextSecondary,
+            lineHeight = 20.sp,
+        )
+    }
+}
+
+@Composable
+private fun EmptyPlaylists() {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = PineGutter, vertical = PineSpace.Md),
+    ) {
+        Text("No playlists yet", style = MaterialTheme.typography.titleMedium, color = PineTextPrimary)
+        Spacer(Modifier.height(PineSpace.Xs))
+        Text(
+            "Group songs you always want together. Nothing is downloaded — a " +
+                "playlist is a list of what to play.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = PineTextSecondary,
+            lineHeight = 20.sp,
+        )
+    }
+}
+
+// ------------------------------------------------------------- divider
+
+/** A divider indented under the row's text rather than its artwork. */
+@Composable
+private fun RowDivider(startIndent: Dp = 84.dp) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = startIndent)
+            .height(1.dp)
+            .background(PineDivider),
     )
 }

@@ -108,4 +108,33 @@ class PlayerController @Inject constructor(
     fun next() = onMain { player.seekToNextMediaItem() }
 
     fun previous() = onMain { player.seekToPreviousMediaItem() }
+
+    /**
+     * Jump to [index] in the current queue.
+     *
+     * This is what makes the Up Next sheet a real control rather than a
+     * decoration: tapping a queued track actually plays it.
+     */
+    fun seekToIndex(index: Int) = onMain {
+        if (index in 0 until player.mediaItemCount) {
+            player.seekTo(index, 0)
+            player.play()
+        }
+    }
+
+    fun toggleShuffle() = onMain { player.shuffleModeEnabled = !player.shuffleModeEnabled }
+
+    /**
+     * Toggles looping the whole queue.
+     *
+     * Only "off" and "repeat all" are offered. Repeat-one exists in ExoPlayer
+     * but is deliberately not surfaced: the queue is assembled from related
+     * tracks as a continuous mix, and looping a single song contradicts what
+     * the queue is for.
+     */
+    fun toggleRepeat() = onMain {
+        player.repeatMode =
+            if (player.repeatMode == Player.REPEAT_MODE_OFF) Player.REPEAT_MODE_ALL
+            else Player.REPEAT_MODE_OFF
+    }
 }
