@@ -66,7 +66,10 @@ fun TrackActionsSheet(
     onDismiss: () -> Unit,
     sourcePlaylistId: String? = null,
 ) {
-    val liked = libraryVm.isLiked(track.videoId)
+    // From the passed-in state rather than libraryVm.isLiked(), which reads the
+    // store's raw .value. The playlists below already come from `library`, so the
+    // liked flag should share its subscription.
+    val liked = library.liked.any { it.videoId == track.videoId }
     var mode by remember { mutableStateOf(SheetMode.Actions) }
     var newName by remember { mutableStateOf("") }
 

@@ -220,7 +220,11 @@ fun NowPlayingScreen(
                 if (currentTrack != null) {
                     Spacer(Modifier.width(PineSpace.Md))
                     LikeButton(
-                        liked = library.isLiked(currentTrack.videoId),
+                        // Derived from the collected state, not library.isLiked():
+                        // that reads store.state.value, which registers no Compose
+                        // snapshot read, so while paused nothing was emitting and the
+                        // heart stayed hollow until audio resumed.
+                        liked = libraryState.liked.any { it.videoId == currentTrack.videoId },
                         onToggle = { library.toggleLike(currentTrack) },
                     )
                 }
