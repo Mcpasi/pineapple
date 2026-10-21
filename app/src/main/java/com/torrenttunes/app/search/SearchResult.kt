@@ -16,7 +16,6 @@ data class SearchResult(
     val viewsLabel: String,
     val views: Long,           // -1 when unparsable
     val thumbUrl: String,      // album art; may be empty
-    val isTopPick: Boolean = false,
 ) {
     /** Stable key — YouTube's video id is already unique per track. */
     val dedupeKey: String get() = videoId

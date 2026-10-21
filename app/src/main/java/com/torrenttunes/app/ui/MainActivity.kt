@@ -85,6 +85,7 @@ import com.torrenttunes.app.ui.components.PineIconButton
 import com.torrenttunes.app.ui.components.SearchGlyph
 import com.torrenttunes.app.ui.components.SectionHeader
 import com.torrenttunes.app.ui.components.StateMessage
+import com.torrenttunes.app.ui.components.TrackActionsSheet
 import com.torrenttunes.app.ui.components.Thumbnail
 import com.torrenttunes.app.ui.components.TrackRow
 import com.torrenttunes.app.ui.components.TrackRowSkeleton
@@ -257,7 +258,7 @@ fun PineappleScreen(vm: MainViewModel, library: LibraryViewModel) {
                 }
 
                 when (tab) {
-                    AppTab.SEARCH -> SearchTab(vm)
+                    AppTab.SEARCH -> SearchTab(vm, library)
                     AppTab.LIBRARY -> LibraryScreen(
                         library = library,
                         onPlay = vm::playResult,
@@ -384,9 +385,14 @@ private fun PineappleTopBar(
 // ----------------------------------------------------------------- search
 
 @Composable
-private fun SearchTab(vm: MainViewModel) {
+private fun SearchTab(vm: MainViewModel, library: LibraryViewModel) {
     val state by vm.state.collectAsState()
     val currentTrack by vm.currentTrack.collectAsState()
+    val libraryState by library.state.collectAsState()
+
+    // Which result's sheet is open. A search result is a track like any other,
+    // so it gets the same actions the Library rows do.
+    var sheetTrack by remember { mutableStateOf<SearchResult?>(null) }
 
     Column(Modifier.fillMaxSize()) {
         // Progress under the field rather than a spinner inside it: a thin
@@ -450,11 +456,27 @@ private fun SearchTab(vm: MainViewModel) {
                             onClick = { vm.playResult(result) },
                             isLoading = state.loadingVideoId == result.videoId,
                             isCurrent = currentTrack?.videoId == result.videoId,
+                            onLongClick = { sheetTrack = result },
+                            onOverflow = { sheetTrack = result },
                         )
                     }
                 }
             }
         }
+    }
+
+    sheetTrack?.let { track ->
+        TrackActionsSheet(
+            track = track,
+            library = libraryState,
+            libraryVm = library,
+            onPlay = { vm.playResult(track) },
+            onAddToQueue = { vm.addToQueue(track) },
+            onDismiss = { sheetTrack = null },
+            // No source playlist: a search result is not inside one, so
+            // "Remove from this playlist" would be a lie.
+            sourcePlaylistId = null,
+        )
     }
 }
 

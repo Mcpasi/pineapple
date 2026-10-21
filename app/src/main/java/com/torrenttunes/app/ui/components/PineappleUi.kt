@@ -530,10 +530,6 @@ fun TrackRow(
 
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (track.isTopPick) {
-                        TopPickBadge()
-                        Spacer(Modifier.width(PineSpace.Sm))
-                    }
                     Text(
                         track.title,
                         style = MaterialTheme.typography.titleMedium,
@@ -595,25 +591,6 @@ fun RowDivider(startIndent: Dp = 84.dp) {
             .padding(start = startIndent)
             .height(1.dp)
             .background(PineDivider),
-    )
-}
-
-/**
- * The "BEST" marker on the top search result.
- *
- * Dark type on accent rather than white, which measured 2.36:1 and failed.
- */
-@Composable
-fun TopPickBadge() {
-    Text(
-        "BEST",
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.Black,
-        letterSpacing = 0.7.sp,
-        color = Color(0xFF140A00),
-        modifier = Modifier
-            .background(PineAccent, RoundedCornerShape(4.dp))
-            .padding(horizontal = 5.dp, vertical = 2.dp),
     )
 }
 

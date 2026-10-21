@@ -13,6 +13,7 @@ import com.torrenttunes.app.search.SearchResult
 import com.torrenttunes.app.util.CrashLogger
 import com.torrenttunes.app.youtube.InnerTube
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -140,6 +141,12 @@ class MainViewModel @Inject constructor(
                 _trending.value = chart
                 Log.i("Discovery", "trending: ${chart.size} tracks")
             } catch (t: Throwable) {
+                // Cancellation is control flow, not a failure. Rethrowing it
+                // keeps a superseded request from reporting itself as an error:
+                // a newer query cancels the older one (see launchSearch), and
+                // swallowing that here surfaced "StandaloneCoroutine was
+                // cancelled" in the banner while results sat right below it.
+                if (t is CancellationException) throw t
                 Log.w("Discovery", "trending failed", t)
                 _trendingError.value = t.message ?: "Could not load trending"
             } finally {
@@ -207,6 +214,12 @@ class MainViewModel @Inject constructor(
                     _repeatAll.value = p.repeatMode == Player.REPEAT_MODE_ALL
                     _currentIndex.value = p.currentMediaItemIndex
                 } catch (t: Throwable) {
+                // Cancellation is control flow, not a failure. Rethrowing it
+                // keeps a superseded request from reporting itself as an error:
+                // a newer query cancels the older one (see launchSearch), and
+                // swallowing that here surfaced "StandaloneCoroutine was
+                // cancelled" in the banner while results sat right below it.
+                if (t is CancellationException) throw t
                     _isPlaying.value = false
                 }
                 // 4x a second keeps the waveform moving without feeling like a
@@ -261,12 +274,10 @@ class MainViewModel @Inject constructor(
             try {
                 val found = InnerTube.search(query)
                 // YouTube already returns relevance order, which for music
-                // queries surfaces the real recording first — so we only flag
-                // the head as the best match rather than re-sorting by views
-                // (which would promote a louder cover over the actual track).
-                val ranked = found.mapIndexed { i, r ->
-                    if (i == 0) r.copy(isTopPick = true) else r
-                }
+                // queries surfaces the real recording first. Deliberately not
+                // re-sorted by view count: that would promote a louder cover
+                // over the actual track.
+                val ranked = found
                 val ms = System.currentTimeMillis() - startedAt
                 Log.i(
                     "Search",
@@ -285,6 +296,12 @@ class MainViewModel @Inject constructor(
                     )
                 }
             } catch (t: Throwable) {
+                // Cancellation is control flow, not a failure. Rethrowing it
+                // keeps a superseded request from reporting itself as an error:
+                // a newer query cancels the older one (see launchSearch), and
+                // swallowing that here surfaced "StandaloneCoroutine was
+                // cancelled" in the banner while results sat right below it.
+                if (t is CancellationException) throw t
                 Log.e("Search", "search failed", t)
                 _state.update { it.copy(searching = false, error = t.message ?: "Search failed") }
             }
@@ -354,6 +371,12 @@ class MainViewModel @Inject constructor(
                 // queue than intended.
                 fillQueue(result)
             } catch (t: Throwable) {
+                // Cancellation is control flow, not a failure. Rethrowing it
+                // keeps a superseded request from reporting itself as an error:
+                // a newer query cancels the older one (see launchSearch), and
+                // swallowing that here surfaced "StandaloneCoroutine was
+                // cancelled" in the banner while results sat right below it.
+                if (t is CancellationException) throw t
                 Log.e("Play", "could not play '${result.title}'", t)
                 // Drop the optimistic placeholder too — the bar must not keep
                 // advertising a track that is never going to start.
@@ -388,6 +411,12 @@ class MainViewModel @Inject constructor(
                 playerController.enqueue(listOf(mediaItem(result, resolved)))
                 Log.i("Queue", "queued '${result.title}' (${if (cached != null) "prefetched" else "resolved"})")
             } catch (t: Throwable) {
+                // Cancellation is control flow, not a failure. Rethrowing it
+                // keeps a superseded request from reporting itself as an error:
+                // a newer query cancels the older one (see launchSearch), and
+                // swallowing that here surfaced "StandaloneCoroutine was
+                // cancelled" in the banner while results sat right below it.
+                if (t is CancellationException) throw t
                 Log.w("Queue", "could not queue '${result.title}'", t)
                 _state.update {
                     it.copy(error = t.message ?: "Could not add that track to the queue")
