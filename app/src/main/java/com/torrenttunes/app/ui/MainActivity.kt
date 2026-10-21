@@ -184,7 +184,18 @@ fun PineappleScreen(vm: MainViewModel, library: LibraryViewModel) {
 
     /** Moves to [next], recording where it came from so back can return. */
     fun goTab(next: AppTab) {
-        if (next != tab) tabHistory = tabHistory + next
+        // Compare against the live history rather than against `tab`, the
+        // composition-time snapshot above. The nav bar holds a reference to
+        // this local function across recompositions, and that reference keeps
+        // its original capture — so `tab` went stale at the first navigation
+        // and never moved off SEARCH.
+        //
+        // The effect was that tapping Search looked dead: the guard saw
+        // next == tab and returned, while Discovery and Library only worked
+        // because the stale SEARCH differs from them. `tabHistory` stays
+        // correct here because it is read through the saveable delegate, which
+        // is the same object every time.
+        if (next != tabHistory.last()) tabHistory = tabHistory + next
     }
 
     // Registered while the player is open so the mini-player cannot swallow
