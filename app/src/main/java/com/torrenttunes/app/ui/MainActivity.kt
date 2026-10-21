@@ -321,17 +321,6 @@ private fun PineappleTopBar(
                     letterSpacing = (-0.6).sp,
                     modifier = Modifier.semantics { contentDescription = "Pineapple" },
                 )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "STREAMS INSTANTLY",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 0.9.sp,
-                    color = PineOnAccent,
-                    modifier = Modifier
-                        .background(PineAccent, RoundedCornerShape(PineRadius.Sm))
-                        .padding(horizontal = 7.dp, vertical = 3.dp),
-                )
             }
 
             Spacer(Modifier.height(PineSpace.Md))
