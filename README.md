@@ -4,7 +4,7 @@
   <p><strong>A tiny Android music player that starts the song before you let go of the screen.</strong></p>
   <p>
     <a href="https://github.com/kiinshuk/pineapple/releases/latest">
-      <img src="https://img.shields.io/badge/Download-1.0-FF5500?style=for-the-badge&logo=android&logoColor=white" alt="Download the latest Pineapple release">
+      <img src="https://img.shields.io/badge/Download-1.2-FF5500?style=for-the-badge&logo=android&logoColor=white" alt="Download the latest Pineapple release">
     </a>
     <a href="https://github.com/kiinshuk/pineapple/releases">
       <img src="https://img.shields.io/github/downloads/kiinshuk/pineapple/total?style=for-the-badge&label=downloads&logo=github" alt="Total Pineapple release downloads">
@@ -14,7 +14,7 @@
   <p>
     <img src="https://img.shields.io/github/license/kiinshuk/pineapple?style=flat" alt="MIT license">
     <img src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat&logo=android&logoColor=white" alt="Android 8.0 and later">
-    <img src="https://img.shields.io/badge/APK-1.9%20MB-FF5500?style=flat" alt="Release APK 1.9 megabytes">
+    <img src="https://img.shields.io/badge/APK-2.1%20MB-FF5500?style=flat" alt="Release APK 2.1 megabytes">
     <img src="https://img.shields.io/badge/Kotlin-2.x-7F52FF?style=flat&logo=kotlin&logoColor=white" alt="Kotlin">
   </p>
 </div>
@@ -23,7 +23,7 @@ Pineapple plays YouTube music with nothing in between: search, tap, sound. It
 talks to InnerTube directly from hand-written Kotlin, resolves the stream while
 you are still reading the results list, and lets ExoPlayer run with no
 JavaScript engine, no WebView, and no proof-of-origin token. The whole release
-build is **1.9 MB**.
+build is **2.1 MB**.
 
 ## Features
 
@@ -46,24 +46,26 @@ build is **1.9 MB**.
   new categories of junk stay excluded rather than leaking through.
 - Falls back to user uploads rather than returning nothing, when nothing
   official matches.
-- Keeps YouTube's own relevance order and marks the first hit `BEST`. Never
-  re-sorted by view count, which would only promote the loudest cover.
+- Keeps YouTube's own relevance order. Never re-sorted by view count, which
+  would only promote the loudest cover.
 
 ### Discovery and library
 
 - Opens on the current trending chart plus what you played recently.
 - Liked songs, pinned releases, listening history, and your own playlists,
   persisted across restarts.
-- Long-press any track for its actions sheet.
+- Long-press any track, or tap its three-dot menu, for the shared actions
+  sheet: add to liked, play next, add to queue, add to playlist.
 
 ### Interface
 
-- Dark throughout — `#121212` ground, orange `#FF5500` as the only accent.
+- Dark throughout — `#0B0B0D` ground, `#151518` and `#202024` surfaces, orange
+  `#FF8A24` as the only accent, `#F5F5F7` text.
 - Full-screen player whose background is derived from the artwork.
 - Bottom tabs with a real back-stack: the system back button returns to the
   page you were on instead of closing the app.
-- Every glyph is drawn on a `Canvas`. No icon font, no bundled font resource,
-  no PNG per density.
+- Every glyph is a bundled vector drawable. No icon library, no icon font, no
+  bundled font resource, no PNG per density.
 
 ## Download
 
@@ -161,14 +163,16 @@ would cost more in wiring than it returns.
 | `ui/MainActivity.kt` | Scaffold, tab routing, back-stack, player bar |
 | `ui/DiscoveryScreen.kt` | Trending chart and recently played |
 | `ui/LibraryScreen.kt` | Library sections and the long-press actions sheet |
-| `ui/NowPlayingScreen.kt` | Full-screen player with a per-track gradient |
-| `ui/components/SoundCloudUi.kt` | Artwork palette, thumbnails, waveform, Canvas glyphs |
+| `ui/NowPlayingScreen.kt` | Full-screen player, artwork-derived ground |
+| `ui/components/PineappleUi.kt` | Artwork palette, thumbnails, waveform, icon set, shared controls |
+| `ui/components/TrackActionsSheet.kt` | The actions sheet, shared by Search and Library |
 | `di/AppModule.kt` | ExoPlayer, fetched under the player client's own user agent |
 | `util/CrashLogger.kt` | Persists stack traces to storage |
 
 ```
 app/src/main/res/
 ├── drawable/ic_launcher_foreground.xml   Vector mark — no PNGs, minSdk 26
+├── drawable/ic_*.xml                     21 bundled icon vectors
 ├── mipmap-anydpi-v26/ic_launcher*.xml    Adaptive icon, round and square
 ├── values/themes.xml                     Dark window and system bars
 └── xml/network_security_config.xml       HTTPS only
@@ -181,7 +185,8 @@ tools/
 ### Deliberate decisions
 
 - **No new dependencies.** InnerTube is written by hand rather than taken from
-  NewPipeExtractor (GPLv3). HTTP is `HttpURLConnection`. Glyphs are Canvas.
+  NewPipeExtractor (GPLv3). HTTP is `HttpURLConnection`. Icons are bundled
+  vector drawables, not an icon library.
 - **Three clients, one job each.** VISIONOS for `/player`, `WEB_REMIX` for
   `/search` and `/browse`, `WEB` for `/next`. `PLAYER_CLIENTS` in
   `InnerTube.kt` is the single place to bump when YouTube rotates versions,
@@ -215,8 +220,8 @@ day to day:
 
 | Output | Path | Size |
 |---|---|---|
-| Debug | `app\build\outputs\apk\debug\app-debug.apk` | ~12.5 MB |
-| Release | `app\build\outputs\apk\release\app-release.apk` | ~1.9 MB |
+| Debug | `app\build\outputs\apk\debug\app-debug.apk` | ~12.6 MB |
+| Release | `app\build\outputs\apk\release\app-release.apk` | ~2.1 MB |
 
 Release builds run R8 with resource shrinking.
 
@@ -258,6 +263,11 @@ in `tools/`.
 
 Small, single-purpose pull requests are easiest to review. Say what you
 verified and how.
+
+New to the codebase? Start with an issue labelled
+[`good first issue`](https://github.com/kiinshuk/pineapple/issues?q=label%3A%22good+first+issue%22).
+Each one names the file and line it touches, what the change buys, and how
+you will know it worked — so one can be landed in a single sitting.
 
 ## Legal
 

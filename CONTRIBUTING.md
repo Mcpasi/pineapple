@@ -14,7 +14,7 @@ This is not a style preference, it is a constraint the app is built around:
 - `NewPipeExtractor` is GPLv3 and would make the whole app copyleft.
   `rustypipe-botguard` is MIT but drags in `deno_core` and JSDOM — roughly
   50 MB of engine — for a token that turned out to be unnecessary.
-- The APK is **12.5 MB**, down from 72.6 MB after stale incremental packaging
+- The APK is **12.6 MB**, down from 72.6 MB after stale incremental packaging
   was found shipping ~60 MB of untracked bytes. Every dependency is a fight
   against that number.
 
@@ -79,7 +79,7 @@ bytes — a 72.6 MB APK holding 12.3 MB of entries. The debug build is the one
 you use day to day; `dev.ps1 build` does the clean for you.
 
 Release builds (`assembleRelease`) run R8 with resource shrinking and land at
-**1.9 MB**. See [Release signing](#release-signing).
+**2.1 MB**. See [Release signing](#release-signing).
 
 ## Testing
 
