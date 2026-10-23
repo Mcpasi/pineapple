@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -247,7 +248,7 @@ fun ThumbnailFill(
 ) {
     val palette = remember(seed) { artworkPalette(seed) }
     if (url.isEmpty()) {
-        Box(modifier.clip(RoundedCornerShape(corner)).background(Brush.linearGradient(palette)))
+        Box(modifier.fillMaxSize().clip(RoundedCornerShape(corner)).background(Brush.linearGradient(palette)))
         return
     }
 
@@ -264,13 +265,13 @@ fun ThumbnailFill(
 
     val loaded = bitmap
     if (loaded == null) {
-        Box(modifier.clip(RoundedCornerShape(corner)).background(Brush.linearGradient(palette)))
+        Box(modifier.fillMaxSize().clip(RoundedCornerShape(corner)).background(Brush.linearGradient(palette)))
     } else {
         Image(
             bitmap = loaded.asImageBitmap(),
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = modifier.clip(RoundedCornerShape(corner)),
+            modifier = modifier.fillMaxSize().clip(RoundedCornerShape(corner)),
         )
     }
 }

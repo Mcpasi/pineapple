@@ -184,7 +184,7 @@ fun NowPlayingScreen(
                         url = artworkUrl,
                         seed = seed,
                         corner = PineRadius.Lg,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
             }
