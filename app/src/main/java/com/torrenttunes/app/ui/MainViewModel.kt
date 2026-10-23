@@ -9,6 +9,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import com.torrenttunes.app.library.LibraryStore
 import com.torrenttunes.app.player.PlayerController
+import com.torrenttunes.app.search.ArtistDetail
 import com.torrenttunes.app.search.SearchResult
 import com.torrenttunes.app.util.CrashLogger
 import com.torrenttunes.app.youtube.InnerTube
@@ -46,6 +47,21 @@ data class UiState(
     val queueSize: Int = 0,
 )
 
+/**
+ * The artist catalogue page being read, if any.
+ *
+ * [seed] is the row the user tapped: it already carries the name, the
+ * audience line and the avatar, so the header shows something true while
+ * `/browse` is still in flight. [detail] then supplies the page's own banner
+ * and Top songs.
+ */
+data class ArtistUiState(
+    val seed: SearchResult,
+    val detail: ArtistDetail? = null,
+    val loading: Boolean = true,
+    val error: String? = null,
+)
+
 @HiltViewModel
 class MainViewModel @Inject constructor(
     @dagger.hilt.android.qualifiers.ApplicationContext private val androidContext: android.content.Context,
@@ -69,6 +85,18 @@ class MainViewModel @Inject constructor(
     /** Real album art from YouTube; empty when nothing is loaded. */
     private val _artworkUrl = MutableStateFlow("")
     val artworkUrl: StateFlow<String> = _artworkUrl.asStateFlow()
+
+    /**
+     * The open artist page, or null when the reader is on a tab.
+     *
+     * It lives outside [UiState] on purpose: the nav bar and the back gesture
+     * both close it, and neither is a child of the screen that opened it.
+     */
+    private val _artistPage = MutableStateFlow<ArtistUiState?>(null)
+    val artistPage: StateFlow<ArtistUiState?> = _artistPage.asStateFlow()
+
+    /** The `/browse` call for the open page — cancelled when the page closes. */
+    private var artistJob: Job? = null
 
     /**
      * The track the player is actually on, as a full object.
@@ -308,6 +336,53 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    // -------------------------------------------------------------- artist
+
+    /** Open an artist's catalogue; the tapped row seeds the page instantly. */
+    fun openArtist(row: SearchResult) {
+        if (row.browseId.isEmpty()) return
+        _artistPage.value = ArtistUiState(seed = row)
+        loadArtist(row.browseId)
+    }
+
+    /** Leave the catalogue — back gesture, nav bar or the page's own button. */
+    fun closeArtist() {
+        artistJob?.cancel()
+        artistJob = null
+        _artistPage.value = null
+    }
+
+    fun retryArtist() {
+        val seed = _artistPage.value?.seed ?: return
+        loadArtist(seed.browseId)
+    }
+
+    private fun loadArtist(browseId: String) {
+        artistJob?.cancel()
+        artistJob = viewModelScope.launch(Dispatchers.IO) {
+            _artistPage.update { it?.copy(loading = true, error = null) }
+            try {
+                val detail = InnerTube.artistDetail(browseId)
+                // null means the request itself failed; parse failures throw
+                // and land in the catch below. Either way the page says so
+                // instead of standing there with a header and no songs.
+                if (detail == null) {
+                    _artistPage.update {
+                        it?.copy(loading = false, error = "Could not load this artist")
+                    }
+                } else {
+                    _artistPage.update { it?.copy(loading = false, detail = detail) }
+                }
+            } catch (t: Throwable) {
+                // Cancellation is control flow, not a failure (see launchSearch).
+                if (t is CancellationException) throw t
+                _artistPage.update {
+                    it?.copy(loading = false, error = t.message ?: "Could not load this artist")
+                }
+            }
+        }
+    }
+
     // --------------------------------------------------------------- play
 
     /**
@@ -320,7 +395,9 @@ class MainViewModel @Inject constructor(
     private fun startPrefetch(results: List<SearchResult>) {
         prefetchJob?.cancel()
         streamCache.clear()
-        val targets = results.take(PREFETCH_COUNT)
+        // A catalogue row has no video id to resolve — skip it rather than
+        // burn one request on "" per artist ahead of the real tracks.
+        val targets = results.filter { it.videoId.isNotEmpty() }.take(PREFETCH_COUNT)
         if (targets.isEmpty()) return
         prefetchJob = viewModelScope.launch(Dispatchers.IO) {
             for (r in targets) {

@@ -241,6 +241,84 @@ class InnerTubeParsingTest {
         assertEquals(-1L, InnerTube.parseCount("views"))
     }
 
+    // ------------------------------------------------------- artist catalogue
+
+    @Test
+    fun `artists-only search returns artists with page ids and no tracks`() {
+        val results = InnerTube.parseMusicSearch(resourceFixture("search_artists_portishead.json"))
+        assertEquals(5, results.size)
+        assertTrue(results.all { it.isArtist })
+        assertTrue(results.all { it.videoId.isEmpty() })
+
+        val portishead = results[0]
+        assertEquals("Portishead", portishead.title)
+        assertEquals("UCweAx0TIRdAylp6G1nviqbQ", portishead.browseId)
+        assertEquals("Artist", portishead.channel)
+        assertEquals("7.83M monthly audience", portishead.viewsLabel)
+        assertTrue(portishead.thumbUrl.startsWith("https://"))
+        assertTrue(portishead.dedupeKey.startsWith("browse:"))
+
+        // Without the browse: prefix both artist rows would key "" and a
+        // duplicate LazyColumn key is a crash, not a wrinkle.
+        assertEquals(results.size, results.map { it.dedupeKey }.distinct().size)
+    }
+
+    @Test
+    fun `mixed search keeps the top-result artist first and related artists last`() {
+        val results = InnerTube.parseMusicSearch(resourceFixture("search_portishead.json"))
+        assertTrue(results.isNotEmpty())
+
+        // The top-result card is YouTube's own answer: it leads.
+        val top = results[0]
+        assertTrue(top.isArtist)
+        assertEquals("Portishead", top.title)
+        assertEquals("UCweAx0TIRdAylp6G1nviqbQ", top.browseId)
+        assertEquals("7.83M monthly audience", top.viewsLabel)
+
+        // The music the query was for still occupies the middle of the list.
+        // Exact count: this fixture yields 8 ATV/OMV rows — pinning the number
+        // is the point, because a silent drop here is how search goes quiet.
+        val tracks = results.filter { it.videoId.isNotEmpty() }
+        assertEquals(8, tracks.size)
+        // ...and related artists sit behind it, never above it.
+        assertTrue(results.any { it.isArtist && it.title == "Massive Attack" })
+        val lastTrack = results.indexOfLast { it.videoId.isNotEmpty() }
+        val lastArtist = results.indexOfLast { it.isArtist }
+        assertTrue(lastArtist > lastTrack)
+
+        assertEquals(results.size, results.map { it.dedupeKey }.distinct().size)
+    }
+
+    @Test
+    fun `artist detail parses the header and official top songs`() {
+        val detail = checkNotNull(
+            InnerTube.parseArtistDetail(resourceFixture("artist_portishead.json")),
+        )
+        assertEquals("Portishead", detail.name)
+        assertEquals("7.83M monthly audience", detail.audienceLabel)
+        assertTrue(detail.bannerUrl.startsWith("https://"))
+
+        assertEquals(5, detail.topSongs.size)
+        assertEquals("Glory Box", detail.topSongs[0].title)
+        assertTrue(detail.topSongs.all { it.videoId.isNotEmpty() })
+        assertTrue(detail.topSongs.none { it.isArtist })
+    }
+
+    @Test
+    fun `artist detail reports an unknown payload instead of an empty page`() {
+        // No header and no Top songs shelf means the schema moved; a silent
+        // empty page would read as "this artist has nothing".
+        assertEquals(null, InnerTube.parseArtistDetail(JSONObject("{}")))
+    }
+
+    /** A captured WEB_REMIX payload from `src/test/resources`. */
+    private fun resourceFixture(name: String): JSONObject {
+        val text = checkNotNull(javaClass.getResourceAsStream("/$name")) {
+            "missing fixture $name - src/test/resources must be on the test classpath"
+        }.bufferedReader(Charsets.UTF_8).readText()
+        return JSONObject(text)
+    }
+
     // ------------------------------------------------------------ fixtures
 
     private companion object {

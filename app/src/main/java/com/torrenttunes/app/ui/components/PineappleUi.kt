@@ -657,6 +657,67 @@ fun SectionHeader(
     }
 }
 
+// ------------------------------------------------------------- artist row
+
+/**
+ * An artist in search results: circular avatar, name, audience line.
+ *
+ * Deliberately not a [TrackRow] — an artist has no video id to play and no
+ * menu of track actions, and rendering it as a track would offer both and
+ * deliver neither. The whole row is the door to the catalogue page.
+ */
+@Composable
+fun ArtistRow(
+    artist: SearchResult,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = PineGutter, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // corner = half the size: the same rounded-rect renderer as every
+            // track, producing a circle for artist avatars without a second
+            // image path to keep in sync.
+            Thumbnail(artist.thumbUrl, artist.title, size = 48.dp, corner = 24.dp)
+            Spacer(Modifier.width(PineSpace.Md))
+
+            Column(Modifier.weight(1f)) {
+                Text(
+                    artist.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = PineTextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(PineSpace.Xxs))
+                val meta = buildString {
+                    if (artist.channel.isNotEmpty()) append(artist.channel)
+                    if (artist.viewsLabel.isNotEmpty()) {
+                        if (isNotEmpty()) append("  ·  ")
+                        append(artist.viewsLabel)
+                    }
+                }
+                if (meta.isNotEmpty()) {
+                    Text(
+                        meta,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = PineTextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+
+        RowDivider()
+    }
+}
+
 // --------------------------------------------------------------- skeleton
 
 /**

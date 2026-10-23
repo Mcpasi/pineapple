@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.torrenttunes.app.library.LibraryViewModel
 import com.torrenttunes.app.search.SearchResult
+import com.torrenttunes.app.ui.components.ArtistRow
 import com.torrenttunes.app.ui.components.CloseGlyph
 import com.torrenttunes.app.ui.components.NextGlyph
 import com.torrenttunes.app.ui.components.PauseGlyph
@@ -165,6 +166,7 @@ fun PineappleScreen(vm: MainViewModel, library: LibraryViewModel) {
     // needing to be closed and reopened first.
     val currentTrack by vm.currentTrack.collectAsState()
     val nowPlaying by vm.nowPlaying.collectAsState()
+    val artistPage by vm.artistPage.collectAsState()
 
     // rememberSaveable: a rotation must not dump you back on Search, and must
     // not silently close the player over a track that is still playing.
@@ -196,15 +198,22 @@ fun PineappleScreen(vm: MainViewModel, library: LibraryViewModel) {
         // correct here because it is read through the saveable delegate, which
         // is the same object every time.
         if (next != tabHistory.last()) tabHistory = tabHistory + next
+        // The nav bar and the search field are exits from whatever page is
+        // showing, so leaving for another tab closes an open artist catalogue.
+        // A no-op when nothing is open.
+        vm.closeArtist()
     }
 
     // Registered while the player is open so the mini-player cannot swallow
     // the gesture: back closes the player first, then unwinds the pages.
-    BackHandler(enabled = playerOpen || tabHistory.size > 1) {
-        if (playerOpen) {
-            playerOpen = false
-        } else {
-            tabHistory = tabHistory.dropLast(1)
+    // Back walks: player, then an open artist page, then the tab stack.
+    BackHandler(enabled = playerOpen || artistPage != null || tabHistory.size > 1) {
+        when {
+            // The player is mounted over everything, including a catalogue
+            // page opened underneath it, so it closes first.
+            playerOpen -> playerOpen = false
+            artistPage != null -> vm.closeArtist()
+            else -> tabHistory = tabHistory.dropLast(1)
         }
     }
 
@@ -268,7 +277,18 @@ fun PineappleScreen(vm: MainViewModel, library: LibraryViewModel) {
                     ErrorBanner(message = it)
                 }
 
-                when (tab) {
+                // An artist catalogue replaces the tab content in place rather
+                // than overlaying it, so the nav bar, mini-player and search
+                // field keep working around it.
+                val artist = artistPage
+                if (artist != null) {
+                    ArtistScreen(
+                        vm = vm,
+                        library = library,
+                        state = artist,
+                        onClose = vm::closeArtist,
+                    )
+                } else when (tab) {
                     AppTab.SEARCH -> SearchTab(vm, library)
                     AppTab.LIBRARY -> LibraryScreen(
                         library = library,
@@ -451,14 +471,21 @@ private fun SearchTab(vm: MainViewModel, library: LibraryViewModel) {
                     }
 
                     items(state.results, key = { it.dedupeKey }) { result ->
-                        TrackRow(
-                            track = result,
-                            onClick = { vm.playResult(result) },
-                            isLoading = state.loadingVideoId == result.videoId,
-                            isCurrent = currentTrack?.videoId == result.videoId,
-                            onLongClick = { sheetTrack = result },
-                            onOverflow = { sheetTrack = result },
-                        )
+                        // An artist is a door, not a track: tapping opens the
+                        // catalogue instead of resolving a video id that does
+                        // not exist.
+                        if (result.isArtist) {
+                            ArtistRow(artist = result, onClick = { vm.openArtist(result) })
+                        } else {
+                            TrackRow(
+                                track = result,
+                                onClick = { vm.playResult(result) },
+                                isLoading = state.loadingVideoId == result.videoId,
+                                isCurrent = currentTrack?.videoId == result.videoId,
+                                onLongClick = { sheetTrack = result },
+                                onOverflow = { sheetTrack = result },
+                            )
+                        }
                     }
                 }
             }

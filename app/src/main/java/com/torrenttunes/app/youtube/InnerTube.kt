@@ -2,6 +2,7 @@ package com.torrenttunes.app.youtube
 
 import com.torrenttunes.app.search.AudioStream
 import com.torrenttunes.app.search.Http
+import com.torrenttunes.app.search.ArtistDetail
 import com.torrenttunes.app.search.SearchResult
 import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
@@ -234,6 +235,35 @@ object InnerTube {
         return parseTrending(root)
     }
 
+    /**
+     * The artist page for [browseId] (`UC…`), or null when the request failed.
+     *
+     * Same `/browse` shape as [trending] — context plus an id — so nothing new
+     * enters the networking layer to open a catalogue.
+     */
+    suspend fun artistDetail(browseId: String): ArtistDetail? {
+        if (browseId.isEmpty()) return null
+        val body = JSONObject()
+            .put("context", musicContext())
+            .put("browseId", browseId)
+        val raw = try {
+            Http.postJson(
+                url = "${ENDPOINT}browse?key=$KEY",
+                jsonBody = body.toString(),
+                headers = musicHeaders(),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            // Same contract as searchMusic: a failed request is null, not a
+            // crash and not an exception the screen has to know about.
+            return null
+        }
+        val root = JSONObject(raw)
+        captureVisitor(root)
+        return parseArtistDetail(root)
+    }
+
     /** Videos related to [videoId] — used to build a continuous queue. */
     suspend fun related(videoId: String): List<SearchResult> {
         val body = JSONObject()
@@ -343,6 +373,10 @@ object InnerTube {
     }
 
     internal fun parseMusicSearch(root: JSONObject): List<SearchResult> {
+        // The top-result card is a different renderer from an ordinary row,
+        // and it is where an artist answer to the query lives.
+        val cards = mutableListOf<JSONObject>()
+        collectNodes(root, "musicCardShelfRenderer", cards)
         val rows = mutableListOf<JSONObject>()
         collectNodes(root, "musicResponsiveListItemRenderer", rows)
 
@@ -352,12 +386,33 @@ object InnerTube {
         // as a shelf row and again behind its top-result card. LazyColumn keys
         // off videoId, where a repeat is a crash rather than a wrinkle.
         val seen = mutableSetOf<String>()
+
+        // YouTube's own answer to the query goes first. An artist card used to
+        // fall out of this function entirely — no video id, so parseMusicRow
+        // returned null at its guard — which is how search "lost" artists it
+        // had already fetched.
+        val topArtists = mutableListOf<SearchResult>()
+        for (card in cards) {
+            val artist = parseArtistCard(card) ?: continue
+            if (seen.add(artist.dedupeKey)) topArtists += artist
+        }
+
+        // Related artists arrive as ordinary rows inside their own sections.
+        // They sit behind the songs on purpose: a query for music shows music
+        // first, and the catalogue is one tap further down.
+        val relatedArtists = mutableListOf<SearchResult>()
         for (row in rows) {
+            val artist = parseArtistRow(row)
+            if (artist != null) {
+                if (seen.add(artist.dedupeKey)) relatedArtists += artist
+                continue
+            }
             val (result, isUserUpload) = parseMusicRow(row) ?: continue
             if (!seen.add(result.videoId)) continue
             if (isUserUpload) userUploaded += result else official += result
         }
-        return official.ifEmpty { userUploaded }
+
+        return topArtists + official.ifEmpty { userUploaded } + relatedArtists
     }
 
     /**
@@ -527,6 +582,171 @@ object InnerTube {
             views = if (viewsLabel.isEmpty()) -1L else parseCount(viewsLabel),
             thumbUrl = thumbnailUrl(videoId),
         ) to isUserUpload
+    }
+
+    // ---------------------------------------------------------- artist pages
+    //
+    // An artist is not a track: no video id to play, no musicVideoType to
+    // rank. `parseMusicRow` drops such a row at its `videoId.isEmpty()` guard,
+    // so the catalogue door sat in payloads the app already fetched and threw
+    // away. These functions keep it instead.
+    //
+    // Captured 2026-10-23 (WEB_REMIX): the row shape from a filter=artists
+    // search, the card shape from a mixed search's top result.
+
+    /** Page id from a row/card navigation endpoint, or "" when not an artist. */
+    private fun artistBrowseId(endpoint: JSONObject?): String {
+        val browse = endpoint?.optJSONObject("browseEndpoint") ?: return ""
+        val browseId = browse.optString("browseId")
+        if (browseId.isEmpty()) return ""
+        val pageType = browse
+            .optJSONObject("browseEndpointContextSupportedConfigs")
+            ?.optJSONObject("browseEndpointContextMusicConfig")
+            ?.optString("pageType").orEmpty()
+        // `UC` is YouTube's channel-id prefix — the same prefix ytmusicapi
+        // maps to "artist" — and when pageType is present it must say artist,
+        // so an album (MPRE) or playlist row can never pass as one.
+        return when {
+            pageType.isNotEmpty() && pageType != "MUSIC_PAGE_TYPE_ARTIST" -> ""
+            pageType.isEmpty() && !browseId.startsWith("UC") -> ""
+            else -> browseId
+        }
+    }
+
+    /** `"Artist"` and `"51.9M monthly audience"` out of a subtitle's runs. */
+    private fun kindAndCount(subtitle: JSONObject?): Pair<String, String> {
+        // A card's subtitle holds `runs` directly; a row's flex column wraps
+        // them under `text`. Accept either — the runs themselves are the same
+        // shape. (JSONArray.optString on a run *object* would stringify the
+        // whole object back as JSON, so each run is unwrapped explicitly.)
+        val runs = subtitle?.optJSONArray("runs")
+            ?: subtitle?.optJSONObject("text")?.optJSONArray("runs")
+            ?: return "" to ""
+        fun runText(i: Int): String = runs.optJSONObject(i)?.optString("text").orEmpty()
+        if (runs.length() == 0) return "" to ""
+        val kind = runText(0)
+        return if (runs.length() == 1) kind to "" else kind to runText(runs.length() - 1)
+    }
+
+    /** Largest thumbnail on a row or card — an avatar, not the i.ytimg art. */
+    private fun avatarUrl(container: JSONObject?): String {
+        val thumbs = container
+            ?.optJSONObject("thumbnail")
+            ?.optJSONObject("musicThumbnailRenderer")
+            ?.optJSONObject("thumbnail")
+            ?.optJSONArray("thumbnails") ?: return ""
+        // YouTube lists these smallest first; keep the last one that parsed.
+        var url = ""
+        for (i in 0 until thumbs.length()) {
+            url = thumbs.optJSONObject(i)?.optString("url").orEmpty().ifEmpty { url }
+        }
+        return url
+    }
+
+    /** Runs joined from a node holding `runs` directly (headers, subtitles). */
+    private fun runsText(node: JSONObject?): String {
+        val runs = node?.optJSONArray("runs") ?: return ""
+        val sb = StringBuilder()
+        for (i in 0 until runs.length()) {
+            sb.append(runs.optJSONObject(i)?.optString("text").orEmpty())
+        }
+        return sb.toString()
+    }
+
+    /**
+     * An artist row: `navigationEndpoint` sits on the *row*, not on a title
+     * run — the whole row is the link to the page.
+     */
+    private fun parseArtistRow(v: JSONObject): SearchResult? {
+        val browseId = artistBrowseId(v.optJSONObject("navigationEndpoint"))
+        if (browseId.isEmpty()) return null
+
+        val flex = v.optJSONArray("flexColumns") ?: return null
+        val name = flex.optJSONObject(0)
+            ?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
+            ?.let { allRunsText(it) }.orEmpty()
+        if (name.isEmpty()) return null
+
+        val (kind, count) = kindAndCount(
+            flex.optJSONObject(1)?.optJSONObject("musicResponsiveListItemFlexColumnRenderer"),
+        )
+        return SearchResult(
+            videoId = "",
+            title = name,
+            channel = kind.ifEmpty { "Artist" },
+            durationLabel = "",
+            durationSec = 0,
+            viewsLabel = count,
+            views = -1,
+            thumbUrl = avatarUrl(v),
+            browseId = browseId,
+        )
+    }
+
+    /** The top-result card when it *is* an artist — the link is in `title.runs[0]`. */
+    private fun parseArtistCard(card: JSONObject): SearchResult? {
+        val titleRun = card.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)
+            ?: return null
+        val browseId = artistBrowseId(titleRun.optJSONObject("navigationEndpoint"))
+        if (browseId.isEmpty()) return null
+        val name = titleRun.optString("text")
+        if (name.isEmpty()) return null
+
+        val (kind, count) = kindAndCount(card.optJSONObject("subtitle"))
+        return SearchResult(
+            videoId = "",
+            title = name,
+            channel = kind.ifEmpty { "Artist" },
+            durationLabel = "",
+            durationSec = 0,
+            viewsLabel = count,
+            views = -1,
+            thumbUrl = avatarUrl(card),
+            browseId = browseId,
+        )
+    }
+
+    /**
+     * The artist page itself: header (name, audience, banner) and Top songs.
+     *
+     * Null only when the payload has neither a header nor a Top songs shelf —
+     * that means the schema moved, and the caller reports it as a failure
+     * rather than rendering an empty page that looks like a quiet artist.
+     */
+    internal fun parseArtistDetail(root: JSONObject): ArtistDetail? {
+        val headers = mutableListOf<JSONObject>()
+        collectNodes(root, "musicImmersiveHeaderRenderer", headers)
+        val header = headers.firstOrNull()
+
+        val shelves = mutableListOf<JSONObject>()
+        collectNodes(root, "musicShelfRenderer", shelves)
+        val top = shelves.firstOrNull { runsText(it.optJSONObject("title")) == "Top songs" }
+
+        if (header == null && top == null) return null
+
+        val songs = mutableListOf<SearchResult>()
+        val seen = mutableSetOf<String>()
+        val contents = top?.optJSONArray("contents")
+        if (contents != null) {
+            for (i in 0 until contents.length()) {
+                val row = contents.optJSONObject(i)
+                    ?.optJSONObject("musicResponsiveListItemRenderer") ?: continue
+                val (track, isUserUpload) = parseMusicRow(row) ?: continue
+                // Top songs are the label's own; a row the whitelist calls a
+                // user upload here means the schema drifted, and playing it
+                // would break the music-only promise.
+                if (isUserUpload) continue
+                if (!seen.add(track.videoId)) continue
+                songs += track
+            }
+        }
+
+        return ArtistDetail(
+            name = runsText(header?.optJSONObject("title")),
+            audienceLabel = runsText(header?.optJSONObject("monthlyListenerCount")),
+            bannerUrl = avatarUrl(header),
+            topSongs = songs,
+        )
     }
 
     /** Every run in `text`, joined. Titles are normally one run, not always. */
