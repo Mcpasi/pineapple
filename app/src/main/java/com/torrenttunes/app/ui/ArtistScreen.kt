@@ -153,8 +153,6 @@ fun ArtistScreen(
                     }
 
                 else -> {
-                    android.util.Log.i("ArtistUI", "rendering: topSongs=${detail.topSongs.size} albums=${detail.albums.size} videos=${detail.videos.size} related=${detail.relatedArtists.size}")
-
                     if (detail.topSongs.isNotEmpty()) {
                         item(key = "top-songs") { SectionHeader("Top songs") }
                         items(detail.topSongs, key = { it.dedupeKey }) { song ->
