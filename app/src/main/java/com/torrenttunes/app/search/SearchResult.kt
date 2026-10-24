@@ -83,7 +83,20 @@ data class AlbumDetail(
     val tracks: List<SearchResult>,
 )
 
-/** A stream URL resolved for a video, ready to hand to ExoPlayer. */
+data class DiscoveryContent(
+    val trending: List<SearchResult> = emptyList(),
+    val newReleases: List<SearchResult> = emptyList(),
+    val newVideos: List<SearchResult> = emptyList(),
+)
+
+/**
+ * A stream URL resolved for a video, ready to hand to ExoPlayer.
+ */
+/**
+ * A loaded slice of the Discovery/explorer page: the trending rail, the new
+ * releases rail and the new videos rail. Each list is independently optional;
+ * a section with no rows must simply not render, never crash.
+ */
 data class AudioStream(
     val url: String,
     val mimeType: String,      // e.g. `audio/mp4; codecs="mp4a.40.2"`

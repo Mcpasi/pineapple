@@ -11,6 +11,7 @@ import com.torrenttunes.app.library.LibraryStore
 import com.torrenttunes.app.player.PlayerController
 import com.torrenttunes.app.search.Connectivity
 import com.torrenttunes.app.search.ConnectionNotice
+import com.torrenttunes.app.search.DiscoveryContent
 import com.torrenttunes.app.search.OfflineException
 import com.torrenttunes.app.search.onlineRequest
 import com.torrenttunes.app.search.ArtistDetail
@@ -176,6 +177,13 @@ class MainViewModel @Inject constructor(
     private val _trending = MutableStateFlow<List<SearchResult>>(emptyList())
     val trending: StateFlow<List<SearchResult>> = _trending.asStateFlow()
 
+
+    private val _newReleases = MutableStateFlow<List<SearchResult>>(emptyList())
+    val newReleases: StateFlow<List<SearchResult>> = _newReleases.asStateFlow()
+
+    private val _newVideos = MutableStateFlow<List<SearchResult>>(emptyList())
+    val newVideos: StateFlow<List<SearchResult>> = _newVideos.asStateFlow()
+
     private val _trendingLoading = MutableStateFlow(false)
     val trendingLoading: StateFlow<Boolean> = _trendingLoading.asStateFlow()
 
@@ -198,9 +206,11 @@ class MainViewModel @Inject constructor(
             _trendingOffline.value = false
             _connection.update { it.copy(restored = false) }
             try {
-                val chart = onlineRequest(connectivity::isOnline) { InnerTube.trending() }
-                _trending.value = chart
-                Log.i("Discovery", "trending: ${chart.size} tracks")
+                val data = onlineRequest(connectivity::isOnline) { InnerTube.discovery() }
+                _trending.value = data?.trending ?: emptyList()
+                _newReleases.value = data?.newReleases ?: emptyList()
+                _newVideos.value = data?.newVideos ?: emptyList()
+                Log.i("Discovery", "discovery: ${data?.trending?.size ?: 0} trending / ${data?.newReleases?.size ?: 0} releases / ${data?.newVideos?.size ?: 0} videos")
             } catch (t: Throwable) {
                 // Cancellation is control flow, not a failure. Rethrowing it
                 // keeps a superseded request from reporting itself as an error:

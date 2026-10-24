@@ -1,6 +1,7 @@
 package com.torrenttunes.app.youtube
 
 import com.torrenttunes.app.search.AudioStream
+import com.torrenttunes.app.search.DiscoveryContent
 import com.torrenttunes.app.search.Http
 import com.torrenttunes.app.search.ArtistDetail
 import com.torrenttunes.app.search.AlbumDetail
@@ -263,6 +264,73 @@ object InnerTube {
         val root = JSONObject(raw)
         captureVisitor(root)
         return parseArtistDetail(root)
+    }
+
+    /**
+     * The explore page parsed as discovery content: the Trending rail, the New
+     * releases carousel (album doors) and the New music videos carousel. The
+     * moods and podcast Popular-episodes sections are deliberately ignored.
+     *
+     * Same endpoint and context as [trending]; the explore payload already pays
+     * for them, we just stop throwing them away.
+     */
+    suspend fun discovery(): DiscoveryContent? {
+        val body = JSONObject()
+            .put("context", musicContext())
+            .put("browseId", EXPLORE_BROWSE_ID)
+        val raw = try {
+            Http.postJson(
+                url = "${ENDPOINT}browse?key=$KEY",
+                jsonBody = body.toString(),
+                headers = musicHeaders(),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            return null
+        }
+        val root = JSONObject(raw)
+        captureVisitor(root)
+        return parseDiscovery(root)
+    }
+
+    internal fun parseDiscovery(root: JSONObject): DiscoveryContent? {
+        val carousels = mutableListOf<JSONObject>()
+        collectNodes(root, "musicCarouselShelfRenderer", carousels)
+
+        val releases = mutableListOf<SearchResult>()
+        val releasesSeen = linkedSetOf<String>()
+        val videos = mutableListOf<SearchResult>()
+        val videosSeen = linkedSetOf<String>()
+        for (carousel in carousels) {
+            val title = runsText(carousel.optJSONObject("header")
+                ?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")
+                ?.optJSONObject("title")).lowercase()
+            if (title.isBlank()) continue
+            val isAlbumSection = title.contains("album") || title.contains("single")
+            val isVideoSection = title.contains("video")
+            if (!isAlbumSection && !isVideoSection) continue
+
+            val items = mutableListOf<JSONObject>()
+            collectNodes(carousel.optJSONObject("contents") ?: carousel, "musicTwoRowItemRenderer", items)
+            for (item in items) {
+                val parsed = parseCarouselTwoRowItem(item) ?: continue
+                when {
+                    isAlbumSection && parsed.isAlbum &&
+                        releasesSeen.add(parsed.dedupeKey) -> releases += parsed
+                    isVideoSection && parsed.videoId.isNotEmpty() &&
+                        videosSeen.add(parsed.videoId) -> videos += parsed
+                }
+            }
+        }
+        val trending = parseTrending(root)
+        // Empty carousels are fine - the feed just shows what it has.
+        if (trending.isEmpty() && releases.isEmpty() && videos.isEmpty()) return null
+        return DiscoveryContent(
+            trending = trending,
+            newReleases = releases,
+            newVideos = videos,
+        )
     }
 
     /** Videos related to [videoId] — used to build a continuous queue. */
@@ -959,7 +1027,7 @@ object InnerTube {
             val items = mutableListOf<JSONObject>()
             collectNodes(carousel.optJSONObject("contents") ?: carousel, "musicTwoRowItemRenderer", items)
             for (item in items) {
-                val parsed = parseArtistCarouselItem(item) ?: continue
+                val parsed = parseCarouselTwoRowItem(item) ?: continue
                 when {
                     isAlbumSection -> if (albumsSeen.add(parsed.dedupeKey)) albums += parsed
                     isVideoSection -> if (parsed.videoId.isNotEmpty() && videosSeen.add(parsed.videoId)) videos += parsed
@@ -990,7 +1058,7 @@ object InnerTube {
      * (album `MPRE` / artist `UC`) or a playable OMV row. Returns null for
      * anything we cannot place safely — playlists and podcasts, for now.
      */
-    private fun parseArtistCarouselItem(item: JSONObject): SearchResult? {
+    private fun parseCarouselTwoRowItem(item: JSONObject): SearchResult? {
         val titleRun = item.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)
         val title = titleRun?.optString("text").orEmpty().trim()
         if (title.isEmpty()) return null

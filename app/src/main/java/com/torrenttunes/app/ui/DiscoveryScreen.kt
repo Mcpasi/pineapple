@@ -73,6 +73,8 @@ fun DiscoveryScreen(
     contentPadding: PaddingValues,
 ) {
     val trending by vm.trending.collectAsState()
+    val newReleases by vm.newReleases.collectAsState()
+    val newVideos by vm.newVideos.collectAsState()
     val loading by vm.trendingLoading.collectAsState()
     val error by vm.trendingError.collectAsState()
     val offline by vm.trendingOffline.collectAsState()
@@ -149,6 +151,34 @@ fun DiscoveryScreen(
                         },
                         onRetry = { vm.retryTrending() },
                     )
+                }
+            }
+        }
+
+        if (newReleases.isNotEmpty()) {
+            item(key = "release-head") { SectionHeader("New releases") }
+            item(key = "release-row") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = PineGutter),
+                    horizontalArrangement = Arrangement.spacedBy(PineSpace.Md),
+                ) {
+                    items(newReleases.take(12), key = { it.dedupeKey }) { release ->
+                        ReleaseCard(release = release, onOpen = { vm.openAlbum(release) })
+                    }
+                }
+            }
+        }
+
+        if (newVideos.isNotEmpty()) {
+            item(key = "video-head") { SectionHeader("New music videos") }
+            item(key = "video-row") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = PineGutter),
+                    horizontalArrangement = Arrangement.spacedBy(PineSpace.Md),
+                ) {
+                    items(newVideos.take(14), key = { it.videoId }) { video ->
+                        TrendingCard(track = video, width = 150.dp, onClick = { onPlay(video) })
+                    }
                 }
             }
         }
@@ -348,6 +378,45 @@ private fun TrendingCard(track: SearchResult, width: Dp, onClick: () -> Unit) {
 }
 
 /** Skeletons matching [TrendingCard]'s exact footprint, so nothing jumps. */
+@Composable
+private fun ReleaseCard(release: SearchResult, onOpen: () -> Unit) {
+    val cardWidth = 150.dp
+    Column(
+        Modifier
+            .width(cardWidth)
+            .clip(RoundedCornerShape(PineRadius.Md))
+            .clickable(onClick = onOpen),
+    ) {
+        Thumbnail(release.thumbUrl, release.title, size = cardWidth, corner = PineRadius.Md)
+        Spacer(Modifier.height(PineSpace.Sm))
+        Text(
+            release.title,
+            style = MaterialTheme.typography.titleSmall,
+            color = PineTextPrimary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            lineHeight = 17.sp,
+        )
+        if (release.channel.isNotEmpty() || release.viewsLabel.isNotEmpty()) {
+            Spacer(Modifier.height(PineSpace.Xxs))
+            val meta = buildString {
+                if (release.channel.isNotEmpty()) append(release.channel)
+                if (release.viewsLabel.isNotEmpty()) {
+                    if (isNotEmpty()) append("  ·  ")
+                    append(release.viewsLabel)
+                }
+            }
+            Text(
+                meta,
+                style = MaterialTheme.typography.labelMedium,
+                color = PineTextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
 @Composable
 private fun TrendingSkeletonRow() {
     LazyRow(
