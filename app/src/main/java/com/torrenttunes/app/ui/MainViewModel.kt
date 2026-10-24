@@ -9,6 +9,10 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import com.torrenttunes.app.library.LibraryStore
 import com.torrenttunes.app.player.PlayerController
+import com.torrenttunes.app.search.Connectivity
+import com.torrenttunes.app.search.ConnectionNotice
+import com.torrenttunes.app.search.OfflineException
+import com.torrenttunes.app.search.onlineRequest
 import com.torrenttunes.app.search.ArtistDetail
 import com.torrenttunes.app.search.SearchResult
 import com.torrenttunes.app.util.CrashLogger
@@ -32,6 +36,7 @@ import kotlin.coroutines.coroutineContext
 data class UiState(
     val query: String = "",
     val searching: Boolean = false,
+    val searchOffline: Boolean = false,
     val results: List<SearchResult> = emptyList(),
     /** videoId whose stream URL is being resolved right now. */
     val loadingVideoId: String? = null,
@@ -68,10 +73,14 @@ class MainViewModel @Inject constructor(
     val playerController: PlayerController,
     private val scope: CoroutineScope,
     private val library: LibraryStore,
+    private val connectivity: Connectivity,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
+
+    private val _connection = MutableStateFlow(ConnectionNotice(connectivity.isOnline()))
+    internal val connection: StateFlow<ConnectionNotice> = _connection.asStateFlow()
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
@@ -154,6 +163,9 @@ class MainViewModel @Inject constructor(
     private val _trendingError = MutableStateFlow<String?>(null)
     val trendingError: StateFlow<String?> = _trendingError.asStateFlow()
 
+    private val _trendingOffline = MutableStateFlow(false)
+    val trendingOffline: StateFlow<Boolean> = _trendingOffline.asStateFlow()
+
     private var trendingJob: Job? = null
     private var trendingLoaded = false
 
@@ -164,8 +176,10 @@ class MainViewModel @Inject constructor(
         trendingJob = viewModelScope.launch(Dispatchers.IO) {
             _trendingLoading.value = true
             _trendingError.value = null
+            _trendingOffline.value = false
+            _connection.update { it.copy(restored = false) }
             try {
-                val chart = InnerTube.trending()
+                val chart = onlineRequest(connectivity::isOnline) { InnerTube.trending() }
                 _trending.value = chart
                 Log.i("Discovery", "trending: ${chart.size} tracks")
             } catch (t: Throwable) {
@@ -176,6 +190,7 @@ class MainViewModel @Inject constructor(
                 // cancelled" in the banner while results sat right below it.
                 if (t is CancellationException) throw t
                 Log.w("Discovery", "trending failed", t)
+                _trendingOffline.value = t is OfflineException
                 _trendingError.value = t.message ?: "Could not load trending"
             } finally {
                 _trendingLoading.value = false
@@ -213,6 +228,13 @@ class MainViewModel @Inject constructor(
     }
 
     init {
+        // viewModelScope cancels this flow and unregisters its callback when
+        // this ViewModel is cleared; rotation keeps the same subscription.
+        viewModelScope.launch {
+            connectivity.changes.collect { online ->
+                _connection.update { it.changed(online) }
+            }
+        }
         // Lightweight transport poll. Compose can't observe Player callbacks
         // directly without a MediaController, so we sample a few times a second.
         viewModelScope.launch {
@@ -291,6 +313,7 @@ class MainViewModel @Inject constructor(
             _state.update {
                 it.copy(
                     searching = true,
+                    searchOffline = false,
                     error = null,
                     // Only dropped on an explicit submit; a debounced follow-up
                     // keeps what the user is already reading.
@@ -298,9 +321,10 @@ class MainViewModel @Inject constructor(
                     status = null,
                 )
             }
+            _connection.update { it.copy(restored = false) }
             val startedAt = System.currentTimeMillis()
             try {
-                val found = InnerTube.search(query)
+                val found = onlineRequest(connectivity::isOnline) { InnerTube.search(query) }
                 // YouTube already returns relevance order, which for music
                 // queries surfaces the real recording first. Deliberately not
                 // re-sorted by view count: that would promote a louder cover
@@ -331,7 +355,9 @@ class MainViewModel @Inject constructor(
                 // cancelled" in the banner while results sat right below it.
                 if (t is CancellationException) throw t
                 Log.e("Search", "search failed", t)
-                _state.update { it.copy(searching = false, error = t.message ?: "Search failed") }
+                _state.update {
+                    it.copy(searching = false, searchOffline = t is OfflineException, error = t.message ?: "Search failed")
+                }
             }
         }
     }
@@ -424,7 +450,7 @@ class MainViewModel @Inject constructor(
         playJob?.cancel()
         // Optimistic: put the track in the player bar *now*, so the tap is
         // visibly answered before audio can possibly be ready.
-        _state.update { it.copy(pending = result, loadingVideoId = result.videoId, error = null) }
+        _state.update { it.copy(pending = result, loadingVideoId = result.videoId, error = null, searchOffline = false) }
         // The full object reaches the player screen immediately — the like
         // toggle must know which track it is acting on before audio exists.
         _currentTrack.value = result
@@ -458,7 +484,7 @@ class MainViewModel @Inject constructor(
                 // Drop the optimistic placeholder too — the bar must not keep
                 // advertising a track that is never going to start.
                 _state.update {
-                    it.copy(error = t.message ?: "Could not play this track", pending = null)
+                    it.copy(error = t.message ?: "Could not play this track", pending = null, searchOffline = false)
                 }
             } finally {
                 // Only clear if nothing newer has taken our slot — a cancelled
@@ -496,7 +522,7 @@ class MainViewModel @Inject constructor(
                 if (t is CancellationException) throw t
                 Log.w("Queue", "could not queue '${result.title}'", t)
                 _state.update {
-                    it.copy(error = t.message ?: "Could not add that track to the queue")
+                    it.copy(error = t.message ?: "Could not add that track to the queue", searchOffline = false)
                 }
             }
         }

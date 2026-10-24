@@ -162,6 +162,8 @@ private val TabHistorySaver = listSaver<List<AppTab>, String>(
 fun PineappleScreen(vm: MainViewModel, library: LibraryViewModel) {
     val state by vm.state.collectAsState()
     val crash by vm.lastCrash.collectAsState()
+    val connection by vm.connection.collectAsState()
+    val trending by vm.trending.collectAsState()
     // Collected, not read: NowPlaying must follow a track change without
     // needing to be closed and reopened first.
     val currentTrack by vm.currentTrack.collectAsState()
@@ -272,10 +274,26 @@ fun PineappleScreen(vm: MainViewModel, library: LibraryViewModel) {
                     }
                 }
 
-                state.error?.let {
+                state.error?.takeUnless { state.searchOffline && connection.online }?.let {
                     Spacer(Modifier.height(PineSpace.Sm))
                     ErrorBanner(message = it)
                 }
+
+                connection.message(
+                    artistPage == null && when (tab) {
+                        AppTab.SEARCH -> state.results.isNotEmpty()
+                        AppTab.DISCOVERY -> trending.isNotEmpty()
+                        AppTab.LIBRARY -> false
+                    },
+                )
+                    ?.takeIf { !state.searchOffline || connection.online }?.let {
+                        Spacer(Modifier.height(PineSpace.Sm))
+                        ErrorBanner(
+                            message = it,
+                            color = if (connection.online) PineAccent else PineError,
+                            onRetry = if (tab == AppTab.SEARCH && state.searchOffline) vm::search else null,
+                        )
+                    }
 
                 // An artist catalogue replaces the tab content in place rather
                 // than overlaying it, so the nav bar, mini-player and search
@@ -407,6 +425,7 @@ private fun PineappleTopBar(
 @Composable
 private fun SearchTab(vm: MainViewModel, library: LibraryViewModel) {
     val state by vm.state.collectAsState()
+    val connection by vm.connection.collectAsState()
     val currentTrack by vm.currentTrack.collectAsState()
     val libraryState by library.state.collectAsState()
 
@@ -429,8 +448,14 @@ private fun SearchTab(vm: MainViewModel, library: LibraryViewModel) {
                 state.error != null && state.results.isEmpty() -> {
                     item(key = "error") {
                         StateMessage(
-                            title = "Could not search",
-                            body = state.error,
+                            title = when {
+                                !state.searchOffline -> "Could not search"
+                                connection.online -> "Connection restored"
+                                else -> "You're offline"
+                            },
+                            body = if (state.searchOffline && connection.online) {
+                                "Try again when you're ready."
+                            } else state.error,
                             actionLabel = "Try again",
                             onAction = { vm.search() },
                             glyph = { size, color -> SearchGlyph(size, color, 3.dp) },
@@ -540,10 +565,10 @@ private fun LinearProgressRule() {
 // ---------------------------------------------------------------- empty state
 
 @Composable
-private fun ErrorBanner(message: String) {
+private fun ErrorBanner(message: String, color: Color = PineError, onRetry: (() -> Unit)? = null) {
     Surface(
-        color = PineError.copy(alpha = 0.14f),
-        contentColor = PineError,
+        color = color.copy(alpha = 0.14f),
+        contentColor = color,
         shape = RoundedCornerShape(PineRadius.Md),
         modifier = Modifier.padding(horizontal = PineGutter),
     ) {
@@ -554,11 +579,14 @@ private fun ErrorBanner(message: String) {
             Text(
                 message,
                 style = MaterialTheme.typography.bodyMedium,
-                color = PineError,
+                color = color,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            onRetry?.let { retry ->
+                TextButton(onClick = retry) { Text("Try again", color = color) }
+            }
         }
     }
 }

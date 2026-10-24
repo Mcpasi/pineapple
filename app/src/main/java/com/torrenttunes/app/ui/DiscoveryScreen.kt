@@ -75,6 +75,8 @@ fun DiscoveryScreen(
     val trending by vm.trending.collectAsState()
     val loading by vm.trendingLoading.collectAsState()
     val error by vm.trendingError.collectAsState()
+    val offline by vm.trendingOffline.collectAsState()
+    val connection by vm.connection.collectAsState()
     val libraryState by library.state.collectAsState()
     val currentTrack by vm.currentTrack.collectAsState()
     val isPlaying by vm.isPlaying.collectAsState()
@@ -138,7 +140,15 @@ fun DiscoveryScreen(
 
             error != null -> {
                 item(key = "trend-error") {
-                    TrendingError(message = error ?: "", onRetry = { vm.retryTrending() })
+                    TrendingError(
+                        message = if (offline && connection.online) "Try again when you're ready." else error ?: "",
+                        title = when {
+                            !offline -> "Trending is unavailable"
+                            connection.online -> "Connection restored"
+                            else -> "You're offline"
+                        },
+                        onRetry = { vm.retryTrending() },
+                    )
                 }
             }
         }
@@ -392,9 +402,9 @@ private fun EmptyRecents(onSearch: () -> Unit) {
 }
 
 @Composable
-private fun TrendingError(message: String, onRetry: () -> Unit) {
+private fun TrendingError(message: String, title: String, onRetry: () -> Unit) {
     StateMessage(
-        title = "Trending is unavailable",
+        title = title,
         body = message,
         actionLabel = "Retry",
         onAction = onRetry,
