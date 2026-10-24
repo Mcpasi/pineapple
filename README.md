@@ -4,7 +4,7 @@
   <p><strong>A tiny Android music player that starts the song before you let go of the screen.</strong></p>
   <p>
     <a href="https://github.com/kiinshuk/pineapple/releases/latest">
-      <img src="https://img.shields.io/badge/Download-1.3-FF5500?style=for-the-badge&logo=android&logoColor=white" alt="Download the latest Pineapple release">
+      <img src="https://img.shields.io/badge/Download-1.4-FF5500?style=for-the-badge&logo=android&logoColor=white" alt="Download the latest Pineapple release">
     </a>
     <a href="https://github.com/kiinshuk/pineapple/releases">
       <img src="https://img.shields.io/github/downloads/kiinshuk/pineapple/total?style=for-the-badge&label=downloads&logo=github" alt="Total Pineapple release downloads">
