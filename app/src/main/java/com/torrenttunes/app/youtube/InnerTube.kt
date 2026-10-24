@@ -3,6 +3,7 @@ package com.torrenttunes.app.youtube
 import com.torrenttunes.app.search.AudioStream
 import com.torrenttunes.app.search.Http
 import com.torrenttunes.app.search.ArtistDetail
+import com.torrenttunes.app.search.AlbumDetail
 import com.torrenttunes.app.search.SearchResult
 import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
@@ -401,10 +402,18 @@ object InnerTube {
         // They sit behind the songs on purpose: a query for music shows music
         // first, and the catalogue is one tap further down.
         val relatedArtists = mutableListOf<SearchResult>()
+        // Album doors (an `MPRE` row) sit with the other catalogue doors —
+        // behind the songs, ahead of the looser "related artists" tail.
+        val albums = mutableListOf<SearchResult>()
         for (row in rows) {
             val artist = parseArtistRow(row)
             if (artist != null) {
                 if (seen.add(artist.dedupeKey)) relatedArtists += artist
+                continue
+            }
+            val album = parseAlbumRow(row)
+            if (album != null) {
+                if (seen.add(album.dedupeKey)) albums += album
                 continue
             }
             val (result, isUserUpload) = parseMusicRow(row) ?: continue
@@ -412,7 +421,7 @@ object InnerTube {
             if (isUserUpload) userUploaded += result else official += result
         }
 
-        return topArtists + official.ifEmpty { userUploaded } + relatedArtists
+        return topArtists + official.ifEmpty { userUploaded } + albums + relatedArtists
     }
 
     /**
@@ -703,6 +712,183 @@ object InnerTube {
             views = -1,
             thumbUrl = avatarUrl(card),
             browseId = browseId,
+        )
+    }
+
+    // ----------------------------------------------------------- album pages
+    //
+    // An album is a catalogue door like an artist, but its rows carry an
+    // `MPRE` browse id and a `MUSIC_PAGE_TYPE_ALBUM` pageType. They sit in the
+    // same search payload the app already fetches and used to drop, so keeping
+    // them costs no new request shape — only a parser that recognises them.
+    //
+    // Captured 2026-10-24 (WEB_REMIX): the row shape from a mixed search, the
+    // header shape from a `/browse` of `MPREb_G6JQUdInW98` (Portishead, Dummy).
+
+    /** Album page id from a row's navigation endpoint, or "" when not an album. */
+    private fun albumBrowseId(endpoint: JSONObject?): String {
+        val browse = endpoint?.optJSONObject("browseEndpoint") ?: return ""
+        val browseId = browse.optString("browseId")
+        // `MPRE` is the album-id prefix; when a pageType is present it must be
+        // an album or single, so an artist (UC) or playlist row never passes.
+        if (browseId.isEmpty() || !browseId.startsWith("MPRE")) return ""
+        val pageType = browse
+            .optJSONObject("browseEndpointContextSupportedConfigs")
+            ?.optJSONObject("browseEndpointContextMusicConfig")
+            ?.optString("pageType").orEmpty()
+        return when {
+            pageType.isEmpty() -> browseId
+            pageType == "MUSIC_PAGE_TYPE_ALBUM" || pageType == "MUSIC_PAGE_TYPE_SINGLE" -> browseId
+            else -> ""
+        }
+    }
+
+    /**
+     * An album row: `navigationEndpoint` sits on the *row*, exactly like an
+     * artist door. The subtitle runs read `Album • Artist • 1994`, so the
+     * artist is the run that links to a `UC…` page and the year trails it.
+     */
+    private fun parseAlbumRow(v: JSONObject): SearchResult? {
+        val browseId = albumBrowseId(v.optJSONObject("navigationEndpoint"))
+        if (browseId.isEmpty()) return null
+
+        val flex = v.optJSONArray("flexColumns") ?: return null
+        val name = flex.optJSONObject(0)
+            ?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
+            ?.let { allRunsText(it) }.orEmpty()
+        if (name.isEmpty()) return null
+
+        val runs = flex.optJSONObject(1)
+            ?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
+            ?.optJSONObject("text")?.optJSONArray("runs")
+        var artist = ""
+        var year = ""
+        if (runs != null) {
+            for (i in 0 until runs.length()) {
+                val run = runs.optJSONObject(i) ?: continue
+                val text = run.optString("text").trim()
+                if (text.isEmpty() || text == "•") continue
+                if (artist.isEmpty() && isArtistRun(run)) {
+                    artist = text
+                    continue
+                }
+                if (text.matches(Regex("^\\d{4}$"))) year = text
+            }
+        }
+        return SearchResult(
+            videoId = "",
+            title = name,
+            channel = artist,
+            durationLabel = "",
+            durationSec = 0,
+            viewsLabel = year,
+            views = -1,
+            thumbUrl = avatarUrl(v),
+            browseId = browseId,
+        )
+    }
+
+    /**
+     * The album page for [browseId] (`MPRE…`), or null when the request failed.
+     *
+     * Same `/browse` shape as [artistDetail] — context plus an id — so opening
+     * a catalogue reuses the networking path that already exists.
+     */
+    suspend fun albumDetail(browseId: String): AlbumDetail? {
+        if (browseId.isEmpty()) return null
+        val body = JSONObject()
+            .put("context", musicContext())
+            .put("browseId", browseId)
+        val raw = try {
+            Http.postJson(
+                url = "${ENDPOINT}browse?key=$KEY",
+                jsonBody = body.toString(),
+                headers = musicHeaders(),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            // Same contract as artistDetail: a failed request is null, not a
+            // crash and not an exception the screen has to know about.
+            return null
+        }
+        val root = JSONObject(raw)
+        captureVisitor(root)
+        return parseAlbumDetail(root)
+    }
+
+    /**
+     * The album page itself: header (title, artist, kind, year, cover art) and
+     * its ordered track list.
+     *
+     * An album's header is a `musicResponsiveHeaderRenderer`, not the immersive
+     * one an artist uses. Tracks are the responsive rows beneath it — the same
+     * shape search already parses, so each is filtered by the official-music
+     * whitelist and kept in YouTube's own order.
+     */
+    internal fun parseAlbumDetail(root: JSONObject): AlbumDetail? {
+        val headers = mutableListOf<JSONObject>()
+        collectNodes(root, "musicResponsiveHeaderRenderer", headers)
+        val header = headers.firstOrNull()
+
+        val items = mutableListOf<JSONObject>()
+        collectNodes(root, "musicResponsiveListItemRenderer", items)
+        val tracks = mutableListOf<SearchResult>()
+        val seen = mutableSetOf<String>()
+        for (item in items) {
+            val (track, isUserUpload) = parseMusicRow(item) ?: continue
+            if (isUserUpload) continue
+            if (!seen.add(track.videoId)) continue
+            tracks += track
+        }
+
+        if (header == null && tracks.isEmpty()) return null
+
+        // Subtitle reads `Album • 1994`: the kind leads, a four-digit year trails.
+        var kind = ""
+        var year = ""
+        val subRuns = header?.optJSONObject("subtitle")?.optJSONArray("runs")
+        if (subRuns != null) {
+            for (i in 0 until subRuns.length()) {
+                val t = subRuns.optJSONObject(i)?.optString("text").orEmpty().trim()
+                if (t.isEmpty() || t == "•") continue
+                if (kind.isEmpty()) kind = t
+                else if (t.matches(Regex("^\\d{4}$"))) year = t
+            }
+        }
+
+        // The strapline is the artist, linked to its `UC…` page.
+        val strapRun = header?.optJSONObject("straplineTextOne")
+            ?.optJSONArray("runs")?.optJSONObject(0)
+        val artistName = strapRun?.optString("text").orEmpty()
+        val artistId = artistBrowseId(strapRun?.optJSONObject("navigationEndpoint"))
+
+        // Second subtitle reads `11 songs • 49 minutes`.
+        var trackCount = ""
+        var duration = ""
+        val secRuns = header?.optJSONObject("secondSubtitle")?.optJSONArray("runs")
+        if (secRuns != null) {
+            for (i in 0 until secRuns.length()) {
+                val t = secRuns.optJSONObject(i)?.optString("text").orEmpty().trim()
+                if (t.isEmpty() || t == "•") continue
+                when {
+                    t.contains("song", ignoreCase = true) -> trackCount = t
+                    t.contains("minute", ignoreCase = true) ||
+                        t.contains("hour", ignoreCase = true) -> duration = t
+                }
+            }
+        }
+
+        return AlbumDetail(
+            title = runsText(header?.optJSONObject("title")),
+            artistName = artistName,
+            artistBrowseId = artistId,
+            kindLabel = kind,
+            yearLabel = year,
+            trackCountLabel = trackCount,
+            durationLabel = duration,
+            artUrl = avatarUrl(header),
+            tracks = tracks,
         )
     }
 

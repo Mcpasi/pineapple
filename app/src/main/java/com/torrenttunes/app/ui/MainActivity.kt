@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import com.torrenttunes.app.library.LibraryViewModel
 import com.torrenttunes.app.search.SearchResult
 import com.torrenttunes.app.ui.components.ArtistRow
+import com.torrenttunes.app.ui.components.AlbumRow
 import com.torrenttunes.app.ui.components.CloseGlyph
 import com.torrenttunes.app.ui.components.NextGlyph
 import com.torrenttunes.app.ui.components.PauseGlyph
@@ -169,6 +170,7 @@ fun PineappleScreen(vm: MainViewModel, library: LibraryViewModel) {
     val currentTrack by vm.currentTrack.collectAsState()
     val nowPlaying by vm.nowPlaying.collectAsState()
     val artistPage by vm.artistPage.collectAsState()
+    val albumPage by vm.albumPage.collectAsState()
 
     // rememberSaveable: a rotation must not dump you back on Search, and must
     // not silently close the player over a track that is still playing.
@@ -201,20 +203,25 @@ fun PineappleScreen(vm: MainViewModel, library: LibraryViewModel) {
         // is the same object every time.
         if (next != tabHistory.last()) tabHistory = tabHistory + next
         // The nav bar and the search field are exits from whatever page is
-        // showing, so leaving for another tab closes an open artist catalogue.
-        // A no-op when nothing is open.
+        // showing, so leaving for another tab closes an open artist or album
+        // catalogue. A no-op when nothing is open.
         vm.closeArtist()
+        vm.closeAlbum()
     }
 
     // Registered while the player is open so the mini-player cannot swallow
     // the gesture: back closes the player first, then unwinds the pages.
-    // Back walks: player, then an open artist page, then the tab stack.
-    BackHandler(enabled = playerOpen || artistPage != null || tabHistory.size > 1) {
+    // Back walks: player, then an open artist page, then an open album page,
+    // then the tab stack (an artist opened from an album returns to it).
+    BackHandler(
+        enabled = playerOpen || artistPage != null || albumPage != null || tabHistory.size > 1,
+    ) {
         when {
             // The player is mounted over everything, including a catalogue
             // page opened underneath it, so it closes first.
             playerOpen -> playerOpen = false
             artistPage != null -> vm.closeArtist()
+            albumPage != null -> vm.closeAlbum()
             else -> tabHistory = tabHistory.dropLast(1)
         }
     }
@@ -295,16 +302,26 @@ fun PineappleScreen(vm: MainViewModel, library: LibraryViewModel) {
                         )
                     }
 
-                // An artist catalogue replaces the tab content in place rather
-                // than overlaying it, so the nav bar, mini-player and search
-                // field keep working around it.
+                // A catalogue (artist or album) replaces the tab content in
+                // place rather than overlaying it, so the nav bar, mini-player
+                // and search field keep working around it. An artist opened
+                // from an album renders above it; back reveals the album again.
                 val artist = artistPage
+                val album = albumPage
                 if (artist != null) {
                     ArtistScreen(
                         vm = vm,
                         library = library,
                         state = artist,
                         onClose = vm::closeArtist,
+                    )
+                } else if (album != null) {
+                    AlbumScreen(
+                        vm = vm,
+                        library = library,
+                        state = album,
+                        onClose = vm::closeAlbum,
+                        onOpenArtist = { vm.openArtist(it) },
                     )
                 } else when (tab) {
                     AppTab.SEARCH -> SearchTab(vm, library)
@@ -496,11 +513,12 @@ private fun SearchTab(vm: MainViewModel, library: LibraryViewModel) {
                     }
 
                     items(state.results, key = { it.dedupeKey }) { result ->
-                        // An artist is a door, not a track: tapping opens the
-                        // catalogue instead of resolving a video id that does
-                        // not exist.
+                        // A catalogue door, not a track: tapping opens the page
+                        // instead of resolving a video id that does not exist.
                         if (result.isArtist) {
                             ArtistRow(artist = result, onClick = { vm.openArtist(result) })
+                        } else if (result.isAlbum) {
+                            AlbumRow(album = result, onClick = { vm.openAlbum(result) })
                         } else {
                             TrackRow(
                                 track = result,

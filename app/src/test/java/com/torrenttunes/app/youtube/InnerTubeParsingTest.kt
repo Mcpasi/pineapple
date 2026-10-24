@@ -311,6 +311,55 @@ class InnerTubeParsingTest {
         assertEquals(null, InnerTube.parseArtistDetail(JSONObject("{}")))
     }
 
+    @Test
+    fun `mixed search keeps album doors with page ids and correct subtitles`() {
+        val results = InnerTube.parseMusicSearch(resourceFixture("search_portishead.json"))
+        val albums = results.filter { it.isAlbum }
+        // The album rows this payload carries — kept, not dropped at the guard.
+        assertEquals(3, albums.size)
+        // An album door is never mistaken for a playable track or an artist.
+        assertTrue(albums.all { it.videoId.isEmpty() })
+        assertTrue(albums.none { it.isArtist })
+        assertTrue(albums.all { it.browseId.startsWith("MPRE") })
+        assertTrue(albums.all { it.dedupeKey.startsWith("browse:") })
+
+        val dummy = albums.first { it.title == "Dummy" }
+        assertEquals("MPREb_G6JQUdInW98", dummy.browseId)
+        // Subtitle reads `Album • Portishead • 1994`: artist then year.
+        assertEquals("Portishead", dummy.channel)
+        assertEquals("1994", dummy.viewsLabel)
+        assertTrue(dummy.thumbUrl.startsWith("https://"))
+
+        assertEquals(results.size, results.map { it.dedupeKey }.distinct().size)
+    }
+
+    @Test
+    fun `album detail parses the header and ordered track list`() {
+        val detail = checkNotNull(
+            InnerTube.parseAlbumDetail(resourceFixture("album_portishead.json")),
+        )
+        assertEquals("Dummy", detail.title)
+        assertEquals("Portishead", detail.artistName)
+        assertEquals("UCweAx0TIRdAylp6G1nviqbQ", detail.artistBrowseId)
+        assertEquals("Album", detail.kindLabel)
+        assertEquals("1994", detail.yearLabel)
+        assertEquals("11 songs", detail.trackCountLabel)
+        assertEquals("49 minutes", detail.durationLabel)
+        assertTrue(detail.artUrl.startsWith("https://"))
+
+        assertEquals(11, detail.tracks.size)
+        assertEquals("Mysterons", detail.tracks[0].title)
+        // Every track is playable and official, in YouTube's own order.
+        assertTrue(detail.tracks.all { it.videoId.isNotEmpty() })
+        assertTrue(detail.tracks.none { it.isArtist || it.isAlbum })
+        assertEquals(detail.tracks.size, detail.tracks.map { it.dedupeKey }.distinct().size)
+    }
+
+    @Test
+    fun `album detail reports an unknown payload instead of an empty page`() {
+        assertEquals(null, InnerTube.parseAlbumDetail(JSONObject("{}")))
+    }
+
     /** A captured WEB_REMIX payload from `src/test/resources`. */
     private fun resourceFixture(name: String): JSONObject {
         val text = checkNotNull(javaClass.getResourceAsStream("/$name")) {

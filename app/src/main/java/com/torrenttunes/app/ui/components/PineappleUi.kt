@@ -718,6 +718,62 @@ fun ArtistRow(
     }
 }
 
+/**
+ * An album door in a list — square cover art (albums are square, artists are
+ * round, so the two catalogue doors read differently at a glance) with the
+ * title and an `artist · year` line. Tapping opens the album page; there is no
+ * overflow menu because an album row resolves to a page, not a track.
+ */
+@Composable
+fun AlbumRow(
+    album: SearchResult,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = PineGutter, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Default corner: the same square-ish renderer as a track tile.
+            Thumbnail(album.thumbUrl, album.title, size = 48.dp)
+            Spacer(Modifier.width(PineSpace.Md))
+
+            Column(Modifier.weight(1f)) {
+                Text(
+                    album.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = PineTextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(PineSpace.Xxs))
+                val meta = buildString {
+                    if (album.channel.isNotEmpty()) append(album.channel)
+                    if (album.viewsLabel.isNotEmpty()) {
+                        if (isNotEmpty()) append("  ·  ")
+                        append(album.viewsLabel)
+                    }
+                }
+                if (meta.isNotEmpty()) {
+                    Text(
+                        meta,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = PineTextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+
+        RowDivider()
+    }
+}
+
 // --------------------------------------------------------------- skeleton
 
 /**

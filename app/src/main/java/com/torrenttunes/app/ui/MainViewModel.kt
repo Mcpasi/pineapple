@@ -14,6 +14,7 @@ import com.torrenttunes.app.search.ConnectionNotice
 import com.torrenttunes.app.search.OfflineException
 import com.torrenttunes.app.search.onlineRequest
 import com.torrenttunes.app.search.ArtistDetail
+import com.torrenttunes.app.search.AlbumDetail
 import com.torrenttunes.app.search.SearchResult
 import com.torrenttunes.app.util.CrashLogger
 import com.torrenttunes.app.youtube.InnerTube
@@ -67,6 +68,14 @@ data class ArtistUiState(
     val error: String? = null,
 )
 
+/** An open album page: the tapped row seeds it, `/browse` refines it. */
+data class AlbumUiState(
+    val seed: SearchResult,
+    val detail: AlbumDetail? = null,
+    val loading: Boolean = true,
+    val error: String? = null,
+)
+
 @HiltViewModel
 class MainViewModel @Inject constructor(
     @dagger.hilt.android.qualifiers.ApplicationContext private val androidContext: android.content.Context,
@@ -106,6 +115,16 @@ class MainViewModel @Inject constructor(
 
     /** The `/browse` call for the open page — cancelled when the page closes. */
     private var artistJob: Job? = null
+
+    /**
+     * The open album page, or null when none is showing. Null is the signal
+     * MainActivity uses to render the tab content instead.
+     */
+    private val _albumPage = MutableStateFlow<AlbumUiState?>(null)
+    val albumPage: StateFlow<AlbumUiState?> = _albumPage.asStateFlow()
+
+    /** The `/browse` call for the open album — cancelled when it closes. */
+    private var albumJob: Job? = null
 
     /**
      * The track the player is actually on, as a full object.
@@ -404,6 +423,53 @@ class MainViewModel @Inject constructor(
                 if (t is CancellationException) throw t
                 _artistPage.update {
                     it?.copy(loading = false, error = t.message ?: "Could not load this artist")
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------- album
+
+    /** Open an album's track list; the tapped row seeds the page instantly. */
+    fun openAlbum(row: SearchResult) {
+        if (row.browseId.isEmpty()) return
+        _albumPage.value = AlbumUiState(seed = row)
+        loadAlbum(row.browseId)
+    }
+
+    /** Leave the album — back gesture, nav bar or the page's own button. */
+    fun closeAlbum() {
+        albumJob?.cancel()
+        albumJob = null
+        _albumPage.value = null
+    }
+
+    fun retryAlbum() {
+        val seed = _albumPage.value?.seed ?: return
+        loadAlbum(seed.browseId)
+    }
+
+    private fun loadAlbum(browseId: String) {
+        albumJob?.cancel()
+        albumJob = viewModelScope.launch(Dispatchers.IO) {
+            _albumPage.update { it?.copy(loading = true, error = null) }
+            try {
+                val detail = InnerTube.albumDetail(browseId)
+                // null means the request itself failed; parse failures throw
+                // and land in the catch below. Either way the page says so
+                // instead of standing there with a cover and no tracks.
+                if (detail == null) {
+                    _albumPage.update {
+                        it?.copy(loading = false, error = "Could not load this album")
+                    }
+                } else {
+                    _albumPage.update { it?.copy(loading = false, detail = detail) }
+                }
+            } catch (t: Throwable) {
+                // Cancellation is control flow, not a failure (see launchSearch).
+                if (t is CancellationException) throw t
+                _albumPage.update {
+                    it?.copy(loading = false, error = t.message ?: "Could not load this album")
                 }
             }
         }
