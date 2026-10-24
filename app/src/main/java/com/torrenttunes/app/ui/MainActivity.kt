@@ -1,6 +1,14 @@
 package com.torrenttunes.app.ui
 
+import android.app.Activity
+import android.app.PendingIntent
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -52,6 +60,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +75,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -171,6 +181,24 @@ fun PineappleScreen(vm: MainViewModel, library: LibraryViewModel) {
     val nowPlaying by vm.nowPlaying.collectAsState()
     val artistPage by vm.artistPage.collectAsState()
     val albumPage by vm.albumPage.collectAsState()
+
+    // Media3 posts the lockscreen/notification player from PlaybackService,
+    // but Android 13+ gates it behind POST_NOTIFICATIONS. Ask once per
+    // session when the user actually starts listening (first play). If denied,
+    // playback keeps working in-app; the lockscreen controls just stay hidden.
+    val context = LocalContext.current
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* granted/denied: nothing further to act on */ }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
 
     // rememberSaveable: a rotation must not dump you back on Search, and must
     // not silently close the player over a track that is still playing.
