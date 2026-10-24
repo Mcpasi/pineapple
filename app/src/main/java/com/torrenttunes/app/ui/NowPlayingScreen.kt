@@ -40,6 +40,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -195,12 +197,16 @@ fun NowPlayingScreen(
             // Top bar + title + slider + transport + queue hint + paddings.
             val reserved = 300.dp
             val artSize = minOf(artWidth, windowHeight - reserved).coerceAtLeast(140.dp)
+    // Entrance: artwork scales in on mount (cheap, runs on UI thread only).
+    val enterScaleState = remember { androidx.compose.animation.core.Animatable(0.86f) }
+    LaunchedEffect(Unit) { enterScaleState.animateTo(1f, animationSpec = spring(dampingRatio = 0.82f, stiffness = 720f)) }
+    val enterScale = enterScaleState.value
 
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
             ) {
-                Box(Modifier.size(artSize)) {
+                Box(Modifier.size(artSize).scale(enterScale)) {
                     ThumbnailFill(
                         url = artworkUrl,
                         seed = seed,
