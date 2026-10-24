@@ -53,6 +53,14 @@ data class ArtistDetail(
     val audienceLabel: String,   // "7.83M monthly audience"
     val bannerUrl: String,       // wide header art; may be empty
     val topSongs: List<SearchResult>,
+    // Release carousels from the artist page, parsed by the same kind of
+    // catalogue doors search uses: albums and singles as `MPRE`, artists as
+    // `UC`, official videos as playable OMV rows.
+    val albums: List<SearchResult> = emptyList(),
+    val videos: List<SearchResult> = emptyList(),
+    val relatedArtists: List<SearchResult> = emptyList(),
+    // The `musicDescriptionShelfRenderer` bio, if YouTube served one.
+    val description: String = "",
 )
 
 /**

@@ -314,6 +314,8 @@ fun PineappleScreen(vm: MainViewModel, library: LibraryViewModel) {
                         library = library,
                         state = artist,
                         onClose = vm::closeArtist,
+                        onOpenAlbum = { vm.openAlbum(it) },
+                        onOpenArtist = { vm.openArtist(it) },
                     )
                 } else if (album != null) {
                     AlbumScreen(

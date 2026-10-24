@@ -911,7 +911,7 @@ object InnerTube {
         if (header == null && top == null) return null
 
         val songs = mutableListOf<SearchResult>()
-        val seen = mutableSetOf<String>()
+        val seenSongs = mutableSetOf<String>()
         val contents = top?.optJSONArray("contents")
         if (contents != null) {
             for (i in 0 until contents.length()) {
@@ -922,17 +922,167 @@ object InnerTube {
                 // user upload here means the schema drifted, and playing it
                 // would break the music-only promise.
                 if (isUserUpload) continue
-                if (!seen.add(track.videoId)) continue
+                if (!seenSongs.add(track.videoId)) continue
                 songs += track
             }
         }
+
+        // Released catalogues and related artists live in carousels that sit
+        // beside the Top songs shelf. Walk each by its basic header title
+        // (case-insensitive contains) rather than indexing — YouTube reshuffles
+        // and future artists gain more or fewer rails.
+        val carousels = mutableListOf<JSONObject>()
+        collectNodes(root, "musicCarouselShelfRenderer", carousels)
+
+        val albums = mutableListOf<SearchResult>()
+        val albumsSeen = mutableSetOf<String>()
+        val videos = mutableListOf<SearchResult>()
+        val videosSeen = mutableSetOf<String>()
+        val relatedArtists = mutableListOf<SearchResult>()
+        val relatedSeen = mutableSetOf<String>()
+
+        for (carousel in carousels) {
+            val rawTitle = runsText(carousel.optJSONObject("header")
+                ?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")
+                ?.optJSONObject("title"))
+            val title = rawTitle.lowercase()
+            if (title.isBlank()) continue
+
+            val isAlbumSection =
+                title.contains("album") || title.contains("ep") || title.contains("single")
+            val isVideoSection =
+                title.contains("video") || title.contains("performance")
+            val isRelatedSection = title.contains("like") || title.contains("related")
+            if (!isAlbumSection && !isVideoSection && !isRelatedSection) continue
+
+            // Reach the two-row items inside this carousel's contents nodes.
+            val items = mutableListOf<JSONObject>()
+            collectNodes(carousel.optJSONObject("contents") ?: carousel, "musicTwoRowItemRenderer", items)
+            for (item in items) {
+                val parsed = parseArtistCarouselItem(item) ?: continue
+                when {
+                    isAlbumSection -> if (albumsSeen.add(parsed.dedupeKey)) albums += parsed
+                    isVideoSection -> if (parsed.videoId.isNotEmpty() && videosSeen.add(parsed.videoId)) videos += parsed
+                    isRelatedSection -> if (relatedSeen.add(parsed.dedupeKey)) relatedArtists += parsed
+                }
+            }
+        }
+
+        // Optional biography; the views subheader is noise, not a metric.
+        val descShelves = mutableListOf<JSONObject>()
+        collectNodes(root, "musicDescriptionShelfRenderer", descShelves)
+        val description = runsText(descShelves.firstOrNull()?.optJSONObject("description"))
 
         return ArtistDetail(
             name = runsText(header?.optJSONObject("title")),
             audienceLabel = runsText(header?.optJSONObject("monthlyListenerCount")),
             bannerUrl = avatarUrl(header),
             topSongs = songs,
+            albums = albums,
+            videos = videos,
+            relatedArtists = relatedArtists,
+            description = description.trim(),
         )
+    }
+
+    /**
+     * Parse one of an artist page's two-row carousel items as a catalogue door
+     * (album `MPRE` / artist `UC`) or a playable OMV row. Returns null for
+     * anything we cannot place safely — playlists and podcasts, for now.
+     */
+    private fun parseArtistCarouselItem(item: JSONObject): SearchResult? {
+        val titleRun = item.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)
+        val title = titleRun?.optString("text").orEmpty().trim()
+        if (title.isEmpty()) return null
+
+        val nav = item.optJSONObject("navigationEndpoint")
+        val browse = nav?.optJSONObject("browseEndpoint")
+        val browseId = browse?.optString("browseId").orEmpty()
+        val pageType = browse
+            ?.optJSONObject("browseEndpointContextSupportedConfigs")
+            ?.optJSONObject("browseEndpointContextMusicConfig")
+            ?.optString("pageType").orEmpty()
+
+        var albumId = ""
+        var artistId = ""
+        var videoId = ""
+        when {
+            browseId.startsWith("MPRE") && pageType.isNotEmpty() &&
+                (pageType == "MUSIC_PAGE_TYPE_ALBUM" || pageType == "MUSIC_PAGE_TYPE_SINGLE") ->
+                albumId = browseId
+            browseId.startsWith("UC") && pageType == "MUSIC_PAGE_TYPE_ARTIST" ->
+                artistId = browseId
+            else -> videoId = nav?.optJSONObject("watchEndpoint")
+                ?.optString("videoId").orEmpty()
+        }
+        if (albumId.isEmpty() && artistId.isEmpty() && videoId.isEmpty()) return null
+
+        // Non-separator subtitle pieces: `"2023"` | `"Portishead" • "65M views"`
+        // | or `"51.9M monthly audience"` depending on the rail.
+        val subtitleRuns = item.optJSONObject("subtitle")?.optJSONArray("runs")
+        val pieces = mutableListOf<String>()
+        if (subtitleRuns != null) {
+            for (i in 0 until subtitleRuns.length()) {
+                val piece = subtitleRuns.optJSONObject(i)?.optString("text").orEmpty().trim()
+                if (piece.isEmpty()) continue
+                if (piece == "•" || piece == "⋅" || piece == "·") continue
+                pieces += piece
+            }
+        }
+        val primary = pieces.getOrElse(0) { "" }
+        val secondary = pieces.getOrElse(1) { "" }
+
+        val thumb = carouselsThumbnail(item)
+
+        return when {
+            albumId.isNotEmpty() -> SearchResult(
+                videoId = "",
+                title = title,
+                channel = "",
+                durationLabel = "",
+                durationSec = 0,
+                viewsLabel = primary,
+                views = -1,
+                thumbUrl = thumb,
+                browseId = albumId,
+            )
+            artistId.isNotEmpty() -> SearchResult(
+                videoId = "",
+                title = title,
+                channel = "Artist",
+                durationLabel = "",
+                durationSec = 0,
+                viewsLabel = primary.ifEmpty { secondary },
+                views = -1,
+                thumbUrl = thumb,
+                browseId = artistId,
+            )
+            else -> SearchResult(
+                videoId = videoId,
+                title = title,
+                channel = if (primary.isNotEmpty() && !primary.matches(Regex("^\\d"))) primary else "",
+                durationLabel = "",
+                durationSec = 0,
+                viewsLabel = secondary,
+                views = if (secondary.isNotEmpty()) parseCount(secondary) else -1,
+                thumbUrl = thumb,
+                browseId = "",
+            )
+        }
+    }
+
+    /** Largest thumbnail on a two-row carousel item, or any `musicThumbnailRenderer`. */
+    private fun carouselsThumbnail(container: JSONObject?): String {
+        val thumbs = container
+            ?.optJSONObject("thumbnailRenderer")
+            ?.optJSONObject("musicThumbnailRenderer")
+            ?.optJSONObject("thumbnail")
+            ?.optJSONArray("thumbnails") ?: return ""
+        var url = ""
+        for (i in 0 until thumbs.length()) {
+            url = thumbs.optJSONObject(i)?.optString("url").orEmpty().ifEmpty { url }
+        }
+        return url
     }
 
     /** Every run in `text`, joined. Titles are normally one run, not always. */

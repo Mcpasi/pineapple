@@ -302,6 +302,29 @@ class InnerTubeParsingTest {
         assertEquals("Glory Box", detail.topSongs[0].title)
         assertTrue(detail.topSongs.all { it.videoId.isNotEmpty() })
         assertTrue(detail.topSongs.none { it.isArtist })
+
+        // Release carousels were already fetched; keep them rather than dropping.
+        assertTrue(detail.albums.isNotEmpty())
+        assertTrue(detail.albums.all { it.isAlbum })
+        assertTrue(detail.albums.all { it.browseId.startsWith("MPRE") })
+        // Singles carousel is merged into the same list.
+        assertTrue(detail.albums.size >= 5)
+        // Dedupe identity: an album door has no video id but a unique browse id.
+        assertEquals(detail.albums.size, detail.albums.map { it.dedupeKey }.distinct().size)
+
+        assertTrue(detail.videos.isNotEmpty())
+        assertTrue(detail.videos.all { it.videoId.isNotEmpty() })
+        assertTrue(detail.videos.none { it.isArtist || it.isAlbum })
+
+        assertTrue(detail.relatedArtists.isNotEmpty())
+        assertTrue(detail.relatedArtists.all { it.isArtist })
+        val related = detail.relatedArtists.first { it.title == "Massive Attack" }
+        assertEquals("UCr1uxon7aFztw_dnrau0TDA", related.browseId)
+        assertEquals("51.9M monthly audience", related.viewsLabel)
+
+        // The description shelf is the artist's bio (real text, not fabricated).
+        assertTrue(detail.description.contains("Portishead"))
+        assertTrue(detail.description.contains("Bristol"))
     }
 
     @Test

@@ -25,6 +25,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.torrenttunes.app.library.LibraryViewModel
 import com.torrenttunes.app.search.SearchResult
+import com.torrenttunes.app.ui.components.AlbumRow
+import com.torrenttunes.app.ui.components.ArtistRow
 import com.torrenttunes.app.ui.components.BackGlyph
 import com.torrenttunes.app.ui.components.PineIconButton
 import com.torrenttunes.app.ui.components.SearchGlyph
@@ -59,6 +61,8 @@ fun ArtistScreen(
     library: LibraryViewModel,
     state: ArtistUiState,
     onClose: () -> Unit,
+    onOpenAlbum: (SearchResult) -> Unit = {},
+    onOpenArtist: (SearchResult) -> Unit = {},
 ) {
     val vmState by vm.state.collectAsState()
     val currentTrack by vm.currentTrack.collectAsState()
@@ -140,27 +144,63 @@ fun ArtistScreen(
                     )
                 }
 
-                // No detail yet: either the request is in flight or it has not
-                // been answered. Row-shaped skeletons keep the header steady.
                 detail == null -> items(4) { TrackRowSkeleton() }
 
-                detail.topSongs.isEmpty() -> item(key = "no-songs") {
-                    StateMessage(title = "No songs here yet")
-                }
+                detail.topSongs.isEmpty() && detail.albums.isEmpty() &&
+                    detail.videos.isEmpty() && detail.relatedArtists.isEmpty() ->
+                    item(key = "empty") {
+                        StateMessage(title = "Nothing here yet")
+                    }
 
                 else -> {
-                    item(key = "top-songs") {
-                        SectionHeader("Top songs")
+                    if (detail.topSongs.isNotEmpty()) {
+                        item(key = "top-songs") { SectionHeader("Top songs") }
+                        items(detail.topSongs, key = { it.dedupeKey }) { song ->
+                            TrackRow(
+                                track = song,
+                                onClick = { vm.playResult(song) },
+                                isLoading = vmState.loadingVideoId == song.videoId,
+                                isCurrent = currentTrack?.videoId == song.videoId,
+                                onLongClick = { sheetTrack = song },
+                                onOverflow = { sheetTrack = song },
+                            )
+                        }
                     }
-                    items(detail.topSongs, key = { it.dedupeKey }) { song ->
-                        TrackRow(
-                            track = song,
-                            onClick = { vm.playResult(song) },
-                            isLoading = vmState.loadingVideoId == song.videoId,
-                            isCurrent = currentTrack?.videoId == song.videoId,
-                            onLongClick = { sheetTrack = song },
-                            onOverflow = { sheetTrack = song },
-                        )
+                    if (detail.albums.isNotEmpty()) {
+                        item(key = "albums") { SectionHeader("Albums & singles") }
+                        items(detail.albums, key = { it.dedupeKey }) { release ->
+                            AlbumRow(album = release, onClick = { onOpenAlbum(release) })
+                        }
+                    }
+                    if (detail.videos.isNotEmpty()) {
+                        item(key = "videos") { SectionHeader("Videos") }
+                        items(detail.videos, key = { it.dedupeKey }) { video ->
+                            TrackRow(
+                                track = video,
+                                onClick = { vm.playResult(video) },
+                                isLoading = vmState.loadingVideoId == video.videoId,
+                                isCurrent = currentTrack?.videoId == video.videoId,
+                                onLongClick = { sheetTrack = video },
+                                onOverflow = { sheetTrack = video },
+                            )
+                        }
+                    }
+                    if (detail.relatedArtists.isNotEmpty()) {
+                        item(key = "related-artists") { SectionHeader("Fans might also like") }
+                        items(detail.relatedArtists, key = { it.dedupeKey }) { related ->
+                            ArtistRow(artist = related, onClick = { onOpenArtist(related) })
+                        }
+                    }
+                    if (detail.description.isNotEmpty()) {
+                        item(key = "about") { SectionHeader("About") }
+                        item(key = "about-body") {
+                            Text(
+                                detail.description,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = PineTextSecondary,
+                                modifier = Modifier.padding(horizontal = PineGutter, vertical = PineSpace.Sm),
+                            )
+                        }
                     }
                 }
             }
