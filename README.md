@@ -10,7 +10,7 @@
       <img src="https://img.shields.io/github/downloads/kiinshuk/pineapple/total?style=for-the-badge&label=downloads&logo=github" alt="Total Pineapple release downloads">
     </a>
   </p>
-  <p><a href="CONTRIBUTING.md">Contributing</a> · <a href="#build-locally">Build it yourself</a></p>
+  <p><a href="CONTRIBUTING.md">Contributing</a> · <a href="https://kiinshuk.github.io/pineapple-site/">Official website</a> · <a href="#build-locally">Build it yourself</a></p>
   <p>
     <img src="https://img.shields.io/github/license/kiinshuk/pineapple?style=flat" alt="MIT license">
     <img src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat&logo=android&logoColor=white" alt="Android 8.0 and later">
