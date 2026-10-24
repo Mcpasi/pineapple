@@ -1,0 +1,98 @@
+name: Android CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-debug-build:
+    name: Unit tests and signed debug APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      # Public debug certificate, never a release signing identity.
+      DEBUG_CERT_SHA256: '3ea8ffd565ff2dea56fb3346660c735bc251b4298dbb85e27c33f74580c295a5'
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;34.0.0'
+
+      - name: Set up Gradle and validate wrapper
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-provider: basic
+          validate-wrappers: true
+
+      - name: Install the fixed public debug keystore
+        run: |
+          # A cache or a freshly generated key cannot guarantee update compatibility.
+          install -d -m 700 "$HOME/.android"
+          base64 --decode .github/ci/debug.keystore.base64 > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+
+      - name: Clean and run unit tests
+        # Invoke with bash because gradlew is not executable in this repository.
+        run: bash ./gradlew clean :app:testDebugUnitTest --no-daemon --stacktrace --console=plain
+
+      - name: Build debug APK
+        run: bash ./gradlew :app:assembleDebug --no-daemon --stacktrace --console=plain
+
+      - name: Verify APK signature and create checksum
+        working-directory: app/build/outputs/apk/debug
+        run: |
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs app-debug.apk | tee signing-certificate.txt
+          actual_fingerprint="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' signing-certificate.txt)"
+          if [[ "$actual_fingerprint" != "$DEBUG_CERT_SHA256" ]]; then
+            echo '::error::The debug APK was not signed with the fixed CI debug key.'
+            exit 1
+          fi
+          sha256sum app-debug.apk > app-debug.apk.sha256
+
+      - name: Upload verified debug APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pineapple-debug
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/app-debug.apk.sha256
+            app/build/outputs/apk/debug/signing-certificate.txt
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload test reports even on failure
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pineapple-test-reports
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 14
