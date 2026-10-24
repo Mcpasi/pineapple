@@ -7,7 +7,14 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -15,6 +22,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -41,9 +49,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -64,6 +73,7 @@ import com.torrenttunes.app.ui.components.ShuffleGlyph
 import com.torrenttunes.app.ui.components.ThumbnailFill
 import com.torrenttunes.app.ui.components.playerGroundColors
 import com.torrenttunes.app.ui.theme.PineAccent
+import com.torrenttunes.app.ui.theme.PineOnAccent
 import com.torrenttunes.app.ui.theme.PineDivider
 import com.torrenttunes.app.ui.theme.PineRadius
 import com.torrenttunes.app.ui.theme.PineSpace
@@ -340,34 +350,83 @@ private fun LikeButton(liked: Boolean, onToggle: () -> Unit) {
 
 // --------------------------------------------------------------- slider
 
-/**
- * Playback position.
- *
- * While dragging, the thumb follows the finger and the real position is held —
- * without that, the slider snaps back under your thumb on every seek because
- * the player's position has not caught up yet.
- */
 @Composable
 private fun PlayerSlider(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) {
     var dragging by remember { mutableStateOf<Float?>(null) }
-    val fraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-    val shown = dragging ?: fraction
+    var pressing by remember { mutableStateOf(false) }
+    var widthPx by remember { mutableStateOf(1) }
+    val fraction = if (durationMs > 0L) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+    val shown = (dragging ?: fraction)
+    val thumbScale by animateFloatAsState(
+        targetValue = if (dragging != null || pressing) 1.4f else 1f,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 850f),
+        label = "thumb",
+    )
 
     Column(Modifier.fillMaxWidth().padding(horizontal = PineSpace.Xxl)) {
-        Slider(
-            value = shown,
-            onValueChange = { dragging = it },
-            onValueChangeFinished = {
-                dragging?.let { onSeek((it * durationMs).toLong()) }
-                dragging = null
-            },
-            colors = SliderDefaults.colors(
-                thumbColor = PineAccent,
-                activeTrackColor = PineAccent,
-                inactiveTrackColor = Color.White.copy(alpha = 0.16f),
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .onSizeChanged { widthPx = it.width.coerceAtLeast(1) }
+                .pointerInput(durationMs) {
+                    detectTapGestures { offset ->
+                        pressing = true
+                        val f = (offset.x / widthPx).coerceIn(0f, 1f)
+                        dragging = f
+                        onSeek((f * durationMs).toLong())
+                        dragging = null
+                        pressing = false
+                    }
+                }
+                .draggable(
+                    orientation = Orientation.Horizontal,
+                    state = rememberDraggableState { delta ->
+                        val curr = dragging ?: fraction
+                        dragging = (curr + delta / widthPx).coerceIn(0f, 1f)
+                        pressing = true
+                    },
+                    onDragStarted = {
+                        pressing = true
+                        dragging = fraction
+                    },
+                    onDragStopped = {
+                        dragging?.let { f -> onSeek((f * durationMs).toLong()) }
+                        dragging = null
+                        pressing = false
+                    },
+                ),
+        ) {
+            Canvas(Modifier.fillMaxSize()) {
+                val trackH = 7.dp.toPx()
+                val cy = size.height / 2f
+                val w = size.width
+                val corner = CornerRadius(trackH / 2f)
+                drawRoundRect(
+                    color = Color.White.copy(alpha = 0.14f),
+                    topLeft = Offset(0f, cy - trackH / 2f),
+                    size = Size(w, trackH),
+                    cornerRadius = corner,
+                )
+                val played = shown * w
+                drawRoundRect(
+                    color = PineAccent,
+                    topLeft = Offset(0f, cy - trackH / 2f),
+                    size = Size(played, trackH),
+                    cornerRadius = corner,
+                )
+                drawCircle(
+                    color = PineAccent,
+                    radius = 10.dp.toPx() * thumbScale,
+                    center = Offset(played, cy),
+                )
+                drawCircle(
+                    color = PineOnAccent,
+                    radius = 3.5.dp.toPx() * thumbScale,
+                    center = Offset(played, cy),
+                )
+            }
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(fmtMs(positionMs), style = MaterialTheme.typography.labelSmall, color = PineTextSecondary)
             Text(
