@@ -6,9 +6,11 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.torrenttunes.app.ui.MainActivity
+import com.torrenttunes.app.R
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -28,6 +30,16 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+
+        // Media3's MediaSessionService only actually *posts* a notification when a
+        // provider is supplied. Without this, Android ≥ 12 stays silent even
+        // with a live session. Channel must be created before posting.
+        setMediaNotificationProvider(
+            DefaultMediaNotificationProvider.Builder(this)
+                .setChannelId("pineapple_playback")
+                .setChannelName(R.string.media_notification_channel_name)
+                .build(),
+        )
 
         player.setAudioAttributes(
             AudioAttributes.Builder()
