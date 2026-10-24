@@ -387,6 +387,9 @@ class MainViewModel @Inject constructor(
     fun openArtist(row: SearchResult) {
         if (row.browseId.isEmpty()) return
         _artistPage.value = ArtistUiState(seed = row)
+        // Catalogue pages are mutually exclusive in the renderer; an artist
+        // opened from an open album (or anywhere else) must retire the album.
+        _albumPage.value = null
         loadArtist(row.browseId)
     }
 
@@ -434,6 +437,9 @@ class MainViewModel @Inject constructor(
     fun openAlbum(row: SearchResult) {
         if (row.browseId.isEmpty()) return
         _albumPage.value = AlbumUiState(seed = row)
+        // Catalogue pages are mutually exclusive in the renderer; an album
+        // opened from the artist page must retire it.
+        _artistPage.value = null
         loadAlbum(row.browseId)
     }
 
