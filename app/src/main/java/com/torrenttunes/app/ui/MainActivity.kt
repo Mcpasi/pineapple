@@ -1,11 +1,12 @@
 package com.torrenttunes.app.ui
 
-import android.app.Activity
-import android.app.PendingIntent
+import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -54,6 +55,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -65,6 +69,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -200,6 +205,28 @@ fun PineappleScreen(vm: MainViewModel, library: LibraryViewModel) {
         }
     }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    rememberCoroutineScope()
+
+    // Show a remediation if notifications are disabled at the OS level for
+    // Pineapple, which is the only thing that can defeat the
+    // media-posting path on Android 12 and on Android 13+.
+    LaunchedEffect(currentTrack) {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        if (currentTrack != null && !nm.areNotificationsEnabled()) {
+            val result = snackbarHostState.showSnackbar(
+                message = "Notifications are disabled for Pineapple; the lock-screen player won't appear.",
+                actionLabel = "Settings",
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                }
+                context.startActivity(intent)
+            }
+        }
+    }
+
     // rememberSaveable: a rotation must not dump you back on Search, and must
     // not silently close the player over a track that is still playing.
     var playerOpen by rememberSaveable { mutableStateOf(false) }
@@ -291,6 +318,7 @@ fun PineappleScreen(vm: MainViewModel, library: LibraryViewModel) {
                 AppNavBar(current = tab, onSelect = ::goTab)
             }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = PineBackground,
     ) { padding ->
         BoxWithConstraints(Modifier.padding(padding).fillMaxSize()) {
