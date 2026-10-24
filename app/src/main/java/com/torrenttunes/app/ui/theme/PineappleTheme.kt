@@ -24,22 +24,22 @@ import androidx.compose.ui.unit.sp
 // retuned by editing this file alone.
 
 /** The brand accent. Warm pineapple orange, the one loud colour in the app. */
-val PineAccent = Color(0xFFFF8A24)
+val PineAccent = Color(0xFF1ED760)
 
 /** A deeper orange for pressed states and the far end of accent gradients. */
-val PineAccentDeep = Color(0xFFE06A00)
+val PineAccentDeep = Color(0xFF1DB954)
 
 /** The page itself — the darkest step, behind everything. */
-val PineBackground = Color(0xFF0B0B0D)
+val PineBackground = Color(0xFF121212)
 
 /** Cards, sheets, the mini-player: one step above the page. */
-val PineSurface = Color(0xFF151518)
+val PineSurface = Color(0xFF181818)
 
 /** Filled controls, chips, inputs: the top of the elevation ladder. */
-val PineSurfaceHigh = Color(0xFF202024)
+val PineSurfaceHigh = Color(0xFF252525)
 
 /** Primary type. Soft white rather than #FFF, which glares on a dark ground. */
-val PineTextPrimary = Color(0xFFF5F5F7)
+val PineTextPrimary = Color(0xFFFFFFFF)
 
 /**
  * Secondary type: metadata, timestamps, inactive labels.
@@ -47,19 +47,19 @@ val PineTextPrimary = Color(0xFFF5F5F7)
  * Measures 7.2:1 against [PineBackground], so it stays comfortably above the
  * 4.5:1 that WCAG AA requires for body text.
  */
-val PineTextSecondary = Color(0xFF9C9CA5)
+val PineTextSecondary = Color(0xFFB3B3B3)
 
 /** Disabled controls and genuinely unavailable actions. */
-val PineTextDisabled = Color(0xFF5A5A62)
+val PineTextDisabled = Color(0xFF7C7C7C)
 
 /** Hairline dividers between list rows. */
-val PineDivider = Color(0xFF1C1C20)
+val PineDivider = Color(0xFF282828)
 
 /** Semantic: a destructive or failed action. */
-val PineError = Color(0xFFFF6B61)
+val PineError = Color(0xFFF3727F)
 
 /** Semantic: something succeeded, or a track is confirmed saved. */
-val PineSuccess = Color(0xFF34C77B)
+val PineSuccess = Color(0xFF1ED760)
 
 /**
  * Text placed *on* an accent fill.
@@ -67,11 +67,11 @@ val PineSuccess = Color(0xFF34C77B)
  * White would measure 2.36:1 here and fail outright; near-black measures
  * 8.35:1. This is why every orange control in the app uses dark type.
  */
-val PineOnAccent = Color(0xFF140A00)
+val PineOnAccent = Color(0xFF000000)
 
 /** The full-screen player's untinted fallback ground. */
-val PinePlayerTop = Color(0xFF16171B)
-val PinePlayerBottom = Color(0xFF08090B)
+val PinePlayerTop = Color(0xFF121212)
+val PinePlayerBottom = Color(0xFF121212)
 
 private val PineappleColors = darkColorScheme(
     primary = PineAccent,
