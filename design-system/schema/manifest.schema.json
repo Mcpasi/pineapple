@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opencode.design/schema/manifest-1.0.json",
+  "title": "OpenCode Design System manifest",
+  "type": "object",
+  "required": [
+    "designSystemVersion",
+    "schemaVersion",
+    "status",
+    "name",
+    "description",
+    "source",
+    "themes",
+    "tokens",
+    "preferences",
+    "foundations",
+    "guidelines",
+    "decisions",
+    "preview",
+    "screens",
+    "components",
+    "patterns"
+  ],
+  "properties": {
+    "designSystemVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "schemaVersion": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "review",
+        "stable"
+      ]
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "from-scratch",
+            "existing-project"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "themes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "tokens": {
+      "type": "string"
+    },
+    "preferences": {
+      "type": "string"
+    },
+    "foundations": {
+      "type": "string"
+    },
+    "guidelines": {
+      "type": "string"
+    },
+    "decisions": {
+      "type": "string"
+    },
+    "preview": {
+      "type": "string"
+    },
+    "screens": {
+      "type": "string"
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/document"
+      }
+    },
+    "patterns": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/document"
+      }
+    }
+  },
+  "$defs": {
+    "document": {
+      "type": "object",
+      "required": [
+        "name",
+        "file",
+        "tokens"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "tokens": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
