@@ -429,6 +429,7 @@ class MainViewModel @Inject constructor(
                         it?.copy(loading = false, error = "Could not load this artist")
                     }
                 } else {
+                    Log.i("Artist", "loaded: ${detail.topSongs.size} songs, ${detail.albums.size} albums, ${detail.videos.size} videos, ${detail.relatedArtists.size} related, desc=${detail.description.isNotEmpty()}")
                     _artistPage.update { it?.copy(loading = false, detail = detail) }
                 }
             } catch (t: Throwable) {
