@@ -226,10 +226,12 @@ and manual dispatch from the repository's **Actions** tab.
 
 [`.github/ci/debug.keystore.base64`](.github/ci/debug.keystore.base64) is a
 **deliberately public, debug-only JKS keystore**, not a secret. The workflow
-decodes this same file into `$HOME/.android/debug.keystore` before invoking
-Gradle, so the existing Android debug signing configuration uses it without
-changing local builds. No repository secrets or keystore cache are needed,
-including for fork pull requests.
+decodes this same file into `$RUNNER_TEMP/pineapple-debug.keystore` and checks
+its certificate before invoking Gradle. `CI_DEBUG_KEYSTORE` explicitly selects
+that file in `app/build.gradle.kts`, including its JKS type, alias, and
+passwords. Without this variable, local debug signing remains unchanged.
+No repository secrets or keystore cache are needed, including for fork pull
+requests.
 
 - Alias: `androiddebugkey`
 - Store password and key password: `android`
@@ -245,3 +247,18 @@ necessarily be updated by a CI APK.
 Anyone can sign with it; it establishes update compatibility, not trusted
 authorship. Release signing must use a separate private keystore configured
 through `keystore.properties`, as described above.
+
+### CI signing correction
+
+The first workflow relied on `$HOME/.android/debug.keystore` being Gradle's
+default location, but did not explicitly select that keystore in the build.
+CI now selects the keystore by its absolute path instead, independent of
+Android home-directory settings. The original key and expected certificate
+are unchanged. APK certificate comparison normalises whitespace, separators,
+and letter case, and reports the expected and actual digest on failure; a
+different certificate still fails the build.
+
+Verified with `actionlint` and isolated APK signing tests using Android's
+`apksigner`: repeated signing with the fixed key passes, another signing key
+is rejected, and a missing certificate digest fails verification. A full
+local Gradle run could not be verified because it timed out.

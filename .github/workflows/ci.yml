@@ -51,10 +51,17 @@ jobs:
 
       - name: Install the fixed public debug keystore
         run: |
-          # A cache or a freshly generated key cannot guarantee update compatibility.
-          install -d -m 700 "$HOME/.android"
-          base64 --decode .github/ci/debug.keystore.base64 > "$HOME/.android/debug.keystore"
-          chmod 600 "$HOME/.android/debug.keystore"
+          # Gradle uses this explicit path, not an environment-dependent default.
+          CI_DEBUG_KEYSTORE="$RUNNER_TEMP/pineapple-debug.keystore"
+          umask 077
+          base64 -d .github/ci/debug.keystore.base64 > "$CI_DEBUG_KEYSTORE"
+          keytool -exportcert -keystore "$CI_DEBUG_KEYSTORE" -storepass android -alias androiddebugkey -file "$RUNNER_TEMP/pineapple-debug-certificate.der"
+          actual_fingerprint="$(sha256sum "$RUNNER_TEMP/pineapple-debug-certificate.der" | cut -d ' ' -f 1)"
+          if [[ "$actual_fingerprint" != "$DEBUG_CERT_SHA256" ]]; then
+            echo "::error::CI debug keystore certificate mismatch: expected $DEBUG_CERT_SHA256; got $actual_fingerprint."
+            exit 1
+          fi
+          printf 'CI_DEBUG_KEYSTORE=%s\n' "$CI_DEBUG_KEYSTORE" >> "$GITHUB_ENV"
 
       - name: Clean and run unit tests
         # Invoke with bash because gradlew is not executable in this repository.
@@ -67,9 +74,9 @@ jobs:
         working-directory: app/build/outputs/apk/debug
         run: |
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs app-debug.apk | tee signing-certificate.txt
-          actual_fingerprint="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' signing-certificate.txt)"
+          actual_fingerprint="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' signing-certificate.txt | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
           if [[ "$actual_fingerprint" != "$DEBUG_CERT_SHA256" ]]; then
-            echo '::error::The debug APK was not signed with the fixed CI debug key.'
+            echo "::error::The debug APK was not signed with the fixed CI debug key (expected $DEBUG_CERT_SHA256; got ${actual_fingerprint:-no certificate digest found})."
             exit 1
           fi
           sha256sum app-debug.apk > app-debug.apk.sha256
