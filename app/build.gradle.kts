@@ -116,6 +116,11 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
 
+    // Asynchronous artwork loading with built-in memory + disk caching.
+    // Used as the single image path in PineappleUi (replaces the hand-rolled
+    // downloadBitmap pump so tiles paint immediately and never flash blank).
+    implementation(libs.coil.compose)
+
     // InnerTube parsing is pure Kotlin and is exactly the logic worth pinning
     // without a phone: it is the part that breaks when YouTube changes schema.
     //

@@ -110,10 +110,6 @@ fun NowPlayingScreen(
     val artistText = artist.ifEmpty { currentTrack?.channel.orEmpty() }
     val seed = title.ifEmpty { "pineapple" }
 
-    // Per-track ground. Crossfaded by Compose when [seed] changes, which is
-    // what makes switching songs feel like the room changed colour.
-    val ground = playerGroundColors(seed)
-
     var showQueue by remember { mutableStateOf(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -123,13 +119,28 @@ fun NowPlayingScreen(
         val windowWidth = maxWidth
         val windowHeight = maxHeight
 
-        // The ground: a three-stop vertical gradient ending in the app's
-        // near-black, so text always has something dark beneath it.
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Brush.verticalGradient(ground)),
-        )
+        // Background: the poster bleeds into the screen when artwork is available,
+        // so the screen visibly belongs to the song. A dark scrim keeps text
+        // legible over any cover. Falls back to the per-track gradient ground
+        // when there is no artwork (or it is still loading).
+        Box(Modifier.fillMaxSize()) {
+            if (artworkUrl.isNotEmpty()) {
+                ThumbnailFill(
+                    url = artworkUrl,
+                    seed = seed,
+                    corner = 0.dp,
+                    modifier = Modifier.fillMaxSize(),
+                    emptyColor = Color(0xFF0B0B0D),
+                )
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)))
+            } else {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Brush.verticalGradient(playerGroundColors(seed))),
+                )
+            }
+        }
 
         Column(
             Modifier

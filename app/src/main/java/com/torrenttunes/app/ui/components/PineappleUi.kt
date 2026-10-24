@@ -59,6 +59,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.torrenttunes.app.R
 import com.torrenttunes.app.search.SearchResult
+import coil.compose.AsyncImagePainter
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
+import coil.request.ImageRequest
+import androidx.compose.ui.platform.LocalContext
 import com.torrenttunes.app.ui.theme.PineAccent
 import com.torrenttunes.app.ui.theme.PineDivider
 import com.torrenttunes.app.ui.theme.PineGutter
@@ -182,15 +187,12 @@ fun Artwork(
 }
 
 // --------------------------------------------------------------- thumbnail
+//
+// Coil (disk + memory cache) now owns bitmap loading — tiles paint the
+// synthesised gradient while the JPEG decodes, then crossfade in. The old
+// LruCache pump is gone.
 
-/**
- * Real album art, with the synthesised gradient as its fallback.
- *
- * YouTube serves `i.ytimg.com/vi/{id}/mqdefault.jpg` (a ~10 KB JPEG), so a
- * list of results reads like an actual record shelf rather than a wall of
- * tiles. Decoded bitmaps are memoised by URL — a scroll re-uses them instead of
- * re-downloading, which matters because a LazyColumn reuses nothing here.
- */
+/** Real album art — a list of results reads like a record shelf. */
 @Composable
 fun Thumbnail(
     url: String,
@@ -203,80 +205,79 @@ fun Thumbnail(
         Artwork(seed, size, corner, modifier)
         return
     }
-
-    val bitmap by produceState<Bitmap?>(initialValue = ThumbnailCache.get(url), url) {
-        if (value != null) return@produceState
-
-        // produceState's producer runs on the MAIN thread. Fetching there
-        // throws NetworkOnMainThreadException — and because runCatching used to
-        // swallow it, every tile silently fell back to a gradient instead of
-        // failing visibly. Hop off the UI thread, and stop hiding the error.
-        val downloaded = withContext(Dispatchers.IO) {
-            runCatching { downloadBitmap(url) }.getOrNull()
+    SubcomposeAsyncImage(
+        model = ImageRequest.Builder(LocalContext.current)
+            .data(url)
+            .crossfade(220)
+            .build(),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = modifier
+            .size(size)
+            .clip(RoundedCornerShape(corner)),
+    ) {
+        val state = painter.state
+        if (state is AsyncImagePainter.State.Loading ||
+            state is AsyncImagePainter.State.Error
+        ) {
+            Artwork(seed, size, corner, Modifier)
+        } else {
+            SubcomposeAsyncImageContent()
         }
-        if (downloaded == null) {
-            Log.w("Thumbnail", "could not load $url")
-            return@produceState
-        }
-        ThumbnailCache.put(url, downloaded)
-        value = downloaded
-    }
-
-    // Captured: `bitmap` is a delegated property, so it won't smart-cast.
-    val loaded = bitmap
-    if (loaded == null) {
-        Artwork(seed, size, corner, modifier)
-    } else {
-        Image(
-            bitmap = loaded.asImageBitmap(),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = modifier
-                .size(size)
-                .clip(RoundedCornerShape(corner)),
-        )
     }
 }
 
-/** Artwork that fills its box rather than being sized — the player's hero art. */
+/** Fills its box — the player's hero art and banner headers. */
 @Composable
 fun ThumbnailFill(
     url: String,
     seed: String,
     corner: Dp,
     modifier: Modifier = Modifier,
+    emptyColor: Color? = null,
 ) {
     val palette = remember(seed) { artworkPalette(seed) }
     if (url.isEmpty()) {
-        Box(modifier.fillMaxSize().clip(RoundedCornerShape(corner)).background(Brush.linearGradient(palette)))
+        if (emptyColor != null) {
+            Box(modifier.clip(RoundedCornerShape(corner)).background(emptyColor))
+        } else {
+            Box(modifier.clip(RoundedCornerShape(corner)).background(Brush.linearGradient(palette)))
+        }
         return
     }
-
-    val bitmap by produceState<Bitmap?>(initialValue = ThumbnailCache.get(url), url) {
-        if (value != null) return@produceState
-        val downloaded = withContext(Dispatchers.IO) {
-            runCatching { downloadBitmap(url) }.getOrNull()
+    SubcomposeAsyncImage(
+        model = ImageRequest.Builder(LocalContext.current)
+            .data(url)
+            .crossfade(320)
+            .build(),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = modifier.clip(RoundedCornerShape(corner)),
+    ) {
+        val state = painter.state
+        if (state is AsyncImagePainter.State.Loading ||
+            state is AsyncImagePainter.State.Error
+        ) {
+            if (emptyColor != null) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(emptyColor),
+                )
+            } else {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Brush.linearGradient(palette)),
+                )
+            }
+        } else {
+            SubcomposeAsyncImageContent()
         }
-        if (downloaded != null) {
-            ThumbnailCache.put(url, downloaded)
-            value = downloaded
-        }
-    }
-
-    val loaded = bitmap
-    if (loaded == null) {
-        Box(modifier.fillMaxSize().clip(RoundedCornerShape(corner)).background(Brush.linearGradient(palette)))
-    } else {
-        Image(
-            bitmap = loaded.asImageBitmap(),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = modifier.fillMaxSize().clip(RoundedCornerShape(corner)),
-        )
     }
 }
 
-/** ~8 MB of decoded thumbnails; sized in KB so LruCache can evict proportionally. */
+
 private val ThumbnailCache = object : LruCache<String, Bitmap>(8 * 1024) {
     override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
 }

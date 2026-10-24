@@ -11,6 +11,7 @@ media3 = "1.5.1"
 libtorrent4j = "2.1.0-39"
 nanohttpd = "2.3.1"
 coroutines = "1.9.0"
+coil = "2.7.0"
 junit = "4.13.2"
 
 [libraries]
@@ -34,6 +35,7 @@ nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanoht
 
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
 hilt-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
